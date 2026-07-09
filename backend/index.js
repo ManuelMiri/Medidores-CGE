@@ -6,11 +6,19 @@ const cors = require('cors')
 const app = express()
 
 // Middlewares esenciales
-app.use(cors())                  // permite peticiones desde el frontend
-app.use(express.json())          // parsea el body de las peticiones como JSON
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://medidores-cge.vercel.app'
+  ]
+}))
+app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Rutas
 const rutasMedidores = require('./rutas/medidores')
 app.use('/api/medidores', rutasMedidores)
+
 const rutasAuth = require('./rutas/auth')
 app.use('/api/auth', rutasAuth)
 
@@ -32,7 +40,7 @@ async function iniciar() {
     })
   } catch (err) {
     console.error('❌ Error al conectar a MongoDB:', err.message)
-    process.exit(1) // si no hay DB, no tiene sentido levantar el servidor
+    process.exit(1)
   }
 }
 
