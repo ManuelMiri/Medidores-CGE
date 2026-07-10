@@ -1,7 +1,7 @@
 // src/pages/Mapa.jsx
 import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
-import { Spinner, Alert, Form, InputGroup, Button } from 'react-bootstrap'
+import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
@@ -59,21 +59,98 @@ function CapturarClick({ onClickMapa, modoAgregar }) {
   return null
 }
 
+// Formulario reutilizable — mismo para modal y panel lateral
+function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, guardando, onGuardar, onCerrar }) {
+  return (
+    <>
+      {nuevoPunto && (
+        <div className="alert alert-success py-1 px-2 mb-2" style={{ fontSize: '0.78rem' }}>
+          📍 Lat: {nuevoPunto[0].toFixed(5)}, Lng: {nuevoPunto[1].toFixed(5)}
+        </div>
+      )}
+
+      {[
+        ['instalacion', 'N° Instalación *'],
+        ['zona', 'Zona'],
+        ['establecimiento', 'Establecimiento'],
+        ['proceso', 'Proceso'],
+        ['direccion', 'Dirección'],
+        ['numeroDePoste', 'N° Poste'],
+        ['numeroDeSerie', 'N° Serie'],
+        ['marca', 'Marca'],
+      ].map(([key, label]) => (
+        <div className="mb-2" key={key}>
+          <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>{label}</label>
+          <input
+            className="form-control form-control-sm"
+            value={campos[key]}
+            onChange={e => setCampos(prev => ({ ...prev, [key]: e.target.value }))}
+          />
+        </div>
+      ))}
+
+      <div className="mb-2">
+        <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>UL</label>
+        <select className="form-select form-select-sm"
+          value={campos.unidadDeLectura}
+          onChange={e => setCampos(prev => ({ ...prev, unidadDeLectura: e.target.value }))}>
+          <option value="">Seleccionar UL</option>
+          {uls.map(ul => <option key={ul} value={ul}>{ul}</option>)}
+        </select>
+      </div>
+
+      <div className="mb-2">
+        <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>Estado</label>
+        <select className="form-select form-select-sm"
+          value={campos.estado}
+          onChange={e => setCampos(prev => ({ ...prev, estado: e.target.value }))}>
+          <option value="pendiente">Pendiente</option>
+          <option value="localizado">Localizado</option>
+          <option value="perdido">Perdido</option>
+          <option value="revision">Revisión</option>
+        </select>
+      </div>
+
+      <div className="mb-3">
+        <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>Observaciones</label>
+        <textarea className="form-control form-control-sm" rows={2}
+          value={campos.observaciones}
+          onChange={e => setCampos(prev => ({ ...prev, observaciones: e.target.value }))}
+        />
+      </div>
+
+      <button
+        className="btn btn-primary w-100 btn-sm"
+        onClick={onGuardar}
+        disabled={guardando || !campos.instalacion}
+      >
+        {guardando
+          ? <Spinner size="sm" />
+          : medidorEdit ? '💾 Guardar cambios' : '➕ Agregar medidor'
+        }
+      </button>
+    </>
+  )
+}
+
 export default function Mapa() {
   const { usuario, logout } = useAuth()
-  const [medidores, setMedidores]     = useState([])
-  const [uls, setUls]                 = useState([])
-  const [ulsActivas, setUlsActivas]   = useState([])
-  const [cargando, setCargando]       = useState(true)
-  const [error, setError]             = useState(null)
-  const [busqueda, setBusqueda]       = useState('')
-  const [centroMapa, setCentroMapa]   = useState(null)
-  const [modoAgregar, setModoAgregar] = useState(false)
-  const [nuevoPunto, setNuevoPunto]   = useState(null)
-  const [formulario, setFormulario]   = useState(false)
-  const [medidorEdit, setMedidorEdit] = useState(null)
-  const [guardando, setGuardando]     = useState(false)
-  const [panelVisible, setPanelVisible] = useState(true) // ← nuevo
+  const [medidores, setMedidores]       = useState([])
+  const [uls, setUls]                   = useState([])
+  const [ulsActivas, setUlsActivas]     = useState([])
+  const [cargando, setCargando]         = useState(true)
+  const [error, setError]               = useState(null)
+  const [busqueda, setBusqueda]         = useState('')
+  const [centroMapa, setCentroMapa]     = useState(null)
+  const [modoAgregar, setModoAgregar]   = useState(false)
+  const [nuevoPunto, setNuevoPunto]     = useState(null)
+  const [formulario, setFormulario]     = useState(false)
+  const [medidorEdit, setMedidorEdit]   = useState(null)
+  const [guardando, setGuardando]       = useState(false)
+  const [panelVisible, setPanelVisible] = useState(true)
+
+  // Detectar si es móvil
+  const esMobil = window.innerWidth < 768
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -132,31 +209,44 @@ export default function Mapa() {
     } catch { setError('Error al buscar') }
   }
 
-  function handleClickMapa(coords) {
-    setNuevoPunto(coords)
-    setCampos(prev => ({ ...prev, unidadDeLectura: ulsActivas[0] || '' }))
-    setMedidorEdit(null)
-    setFormulario(true)
+  function abrirFormulario(medidor = null, coords = null) {
+    if (medidor) {
+      setCampos({
+        instalacion:     medidor.instalacion     || '',
+        zona:            medidor.zona            || 'MAULE',
+        establecimiento: medidor.establecimiento || '',
+        proceso:         medidor.proceso         || '',
+        direccion:       medidor.direccion       || '',
+        numeroDePoste:   medidor.numeroDePoste   || '',
+        numeroDeSerie:   medidor.numeroDeSerie   || '',
+        marca:           medidor.marca           || '',
+        unidadDeLectura: medidor.unidadDeLectura || '',
+        estado:          medidor.estado          || 'pendiente',
+        observaciones:   medidor.observaciones   || '',
+      })
+      setMedidorEdit(medidor)
+      setNuevoPunto(null)
+    } else {
+      setCampos({
+        instalacion: '', zona: 'MAULE', establecimiento: '',
+        proceso: '', direccion: '', numeroDePoste: '',
+        numeroDeSerie: '', marca: '', unidadDeLectura: ulsActivas[0] || '',
+        estado: 'pendiente', observaciones: '',
+      })
+      setMedidorEdit(null)
+      setNuevoPunto(coords)
+    }
     setModoAgregar(false)
+    setFormulario(true)
+    // En móvil ocultamos el panel lateral para dar más espacio
+    if (esMobil) setPanelVisible(false)
   }
 
-  function handleEditarMedidor(m) {
-    setCampos({
-      instalacion:     m.instalacion     || '',
-      zona:            m.zona            || 'MAULE',
-      establecimiento: m.establecimiento || '',
-      proceso:         m.proceso         || '',
-      direccion:       m.direccion       || '',
-      numeroDePoste:   m.numeroDePoste   || '',
-      numeroDeSerie:   m.numeroDeSerie   || '',
-      marca:           m.marca           || '',
-      unidadDeLectura: m.unidadDeLectura || '',
-      estado:          m.estado          || 'pendiente',
-      observaciones:   m.observaciones   || '',
-    })
-    setMedidorEdit(m)
+  function cerrarFormulario() {
+    setFormulario(false)
     setNuevoPunto(null)
-    setFormulario(true)
+    setMedidorEdit(null)
+    if (esMobil) setPanelVisible(true)
   }
 
   async function handleGuardar() {
@@ -172,9 +262,7 @@ export default function Mapa() {
           ubicacion: { type: 'Point', coordinates: [lng_, lat] },
         })
       }
-      setFormulario(false)
-      setNuevoPunto(null)
-      setMedidorEdit(null)
+      cerrarFormulario()
       await cargarMedidores()
     } catch (err) {
       alert(err.response?.data?.error || 'Error al guardar')
@@ -204,12 +292,8 @@ export default function Mapa() {
       {/* Navbar */}
       <nav className="navbar navbar-dark bg-primary px-3 py-2">
         <div className="d-flex align-items-center gap-2">
-          {/* Botón toggle panel — visible siempre */}
-          <button
-            className="btn btn-outline-light btn-sm"
-            onClick={() => setPanelVisible(!panelVisible)}
-            title={panelVisible ? 'Ocultar panel' : 'Mostrar panel'}
-          >
+          <button className="btn btn-outline-light btn-sm"
+            onClick={() => setPanelVisible(!panelVisible)}>
             {panelVisible ? '◀' : '▶'}
           </button>
           <span className="navbar-brand mb-0">⚡ CGE Maule</span>
@@ -218,51 +302,36 @@ export default function Mapa() {
           <span className="text-white small d-none d-md-block">
             👤 {usuario.nombre} · {usuario.rol}
           </span>
-          <button className="btn btn-outline-light btn-sm" onClick={logout}>
-            Salir
-          </button>
+          <button className="btn btn-outline-light btn-sm" onClick={logout}>Salir</button>
         </div>
       </nav>
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-        {/* Panel lateral izquierdo — colapsable */}
+        {/* Panel lateral izquierdo */}
         {panelVisible && (
           <div style={{
-            width: '250px',
-            minWidth: '250px',
+            width: '250px', minWidth: '250px',
             backgroundColor: '#fff',
             borderRight: '1px solid #e2e8f0',
-            display: 'flex',
-            flexDirection: 'column',
-            overflowY: 'auto',
-            zIndex: 100,
+            display: 'flex', flexDirection: 'column',
+            overflowY: 'auto', zIndex: 100,
           }}>
-            {/* ULs */}
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
               <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
                 📋 Unidades de Lectura
               </p>
-              {uls.length === 0
-                ? <p style={{ fontSize: '0.8rem', color: '#718096' }}>Sin ULs asignadas</p>
-                : uls.map(ul => (
-                  <div key={ul} className="form-check mb-1">
-                    <input
-                      className="form-check-input" type="checkbox"
-                      id={`ul-${ul}`}
-                      checked={ulsActivas.includes(ul)}
-                      onChange={() => toggleUl(ul)}
-                    />
-                    <label className="form-check-label" htmlFor={`ul-${ul}`}
-                      style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
-                      {ul}
-                    </label>
-                  </div>
-                ))
-              }
+              {uls.map(ul => (
+                <div key={ul} className="form-check mb-1">
+                  <input className="form-check-input" type="checkbox"
+                    id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
+                    onChange={() => toggleUl(ul)} />
+                  <label className="form-check-label" htmlFor={`ul-${ul}`}
+                    style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+                </div>
+              ))}
             </div>
 
-            {/* Resumen */}
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
               <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
                 📊 Resumen
@@ -276,12 +345,10 @@ export default function Mapa() {
               </div>
             </div>
 
-            {/* Agregar */}
             <div style={{ padding: '0.75rem' }}>
               <button
                 className={`btn btn-sm w-100 ${modoAgregar ? 'btn-danger' : 'btn-success'}`}
-                onClick={() => setModoAgregar(!modoAgregar)}
-              >
+                onClick={() => setModoAgregar(!modoAgregar)}>
                 {modoAgregar ? '❌ Cancelar' : '📍 Agregar medidor'}
               </button>
               {modoAgregar && (
@@ -295,8 +362,6 @@ export default function Mapa() {
 
         {/* Mapa */}
         <div style={{ position: 'relative', flex: 1 }}>
-
-          {/* Barra búsqueda */}
           <div style={{
             position: 'absolute', top: '0.75rem', left: '50%',
             transform: 'translateX(-50%)',
@@ -322,7 +387,7 @@ export default function Mapa() {
               color: 'white', padding: '0.3rem 0.8rem',
               borderRadius: '20px', fontSize: '0.8rem',
             }}>
-              📍 Modo agregar — toca el mapa
+              📍 Toca el mapa para agregar un punto
             </div>
           )}
 
@@ -344,7 +409,10 @@ export default function Mapa() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
-            <CapturarClick onClickMapa={handleClickMapa} modoAgregar={modoAgregar} />
+            <CapturarClick
+              onClickMapa={(coords) => abrirFormulario(null, coords)}
+              modoAgregar={modoAgregar}
+            />
 
             {nuevoPunto && (
               <Marker position={nuevoPunto} icon={iconos.nuevo}>
@@ -360,14 +428,13 @@ export default function Mapa() {
                 <Marker key={m._id} position={[lat, lng]} icon={icono}>
                   <Popup minWidth={200}>
                     <div>
-                      <h6 className="mb-1" style={{ fontSize: '0.9rem' }}>📍 {m.instalacion}</h6>
+                      <h6 style={{ fontSize: '0.9rem' }} className="mb-1">📍 {m.instalacion}</h6>
                       <hr style={{ margin: '0.3rem 0' }} />
                       <p style={{ margin: 0, fontSize: '0.8rem' }}>
                         <strong>Estado:</strong> {m.estado}<br />
                         <strong>Dirección:</strong> {m.direccion || '—'}<br />
                         <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
                         <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
-                        <strong>Marca:</strong> {m.marca || '—'}<br />
                         {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
                           <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
                         )}
@@ -375,14 +442,10 @@ export default function Mapa() {
                       </p>
                       <div className="d-flex gap-1 mt-2">
                         <button className="btn btn-primary btn-sm"
-                          onClick={() => handleEditarMedidor(m)}>
-                          ✏️ Editar
-                        </button>
+                          onClick={() => abrirFormulario(m)}>✏️ Editar</button>
                         {usuario.rol === 'admin' && (
                           <button className="btn btn-danger btn-sm"
-                            onClick={() => handleEliminar(m.instalacion)}>
-                            🗑️
-                          </button>
+                            onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
                         )}
                       </div>
                     </div>
@@ -393,98 +456,44 @@ export default function Mapa() {
           </MapContainer>
         </div>
 
-        {/* Formulario lateral derecho */}
-        {formulario && (
+        {/* Panel lateral derecho en ESCRITORIO */}
+        {formulario && !esMobil && (
           <div style={{
             width: '280px', minWidth: '280px',
             backgroundColor: '#fff',
             borderLeft: '1px solid #e2e8f0',
             padding: '0.75rem', overflowY: 'auto',
-            zIndex: 100,
-            // En móvil se pone sobre el mapa
-            position: window.innerWidth < 768 ? 'absolute' : 'relative',
-            right: 0, top: 0, bottom: 0,
-            boxShadow: window.innerWidth < 768 ? '-4px 0 12px rgba(0,0,0,0.15)' : 'none',
           }}>
             <div className="d-flex justify-content-between align-items-center mb-2">
               <h6 className="mb-0" style={{ fontSize: '0.9rem' }}>
                 {medidorEdit ? '✏️ Editar medidor' : '➕ Nuevo medidor'}
               </h6>
-              <button className="btn btn-sm btn-outline-secondary"
-                onClick={() => { setFormulario(false); setNuevoPunto(null); setMedidorEdit(null) }}>
-                ✕
-              </button>
+              <button className="btn btn-sm btn-outline-secondary" onClick={cerrarFormulario}>✕</button>
             </div>
-
-            {nuevoPunto && (
-              <div className="alert alert-success py-1 px-2 mb-2" style={{ fontSize: '0.75rem' }}>
-                📍 {nuevoPunto[0].toFixed(5)}, {nuevoPunto[1].toFixed(5)}
-              </div>
-            )}
-
-            {[
-              ['instalacion', 'N° Instalación *'],
-              ['zona', 'Zona'],
-              ['establecimiento', 'Establecimiento'],
-              ['proceso', 'Proceso'],
-              ['direccion', 'Dirección'],
-              ['numeroDePoste', 'N° Poste'],
-              ['numeroDeSerie', 'N° Serie'],
-              ['marca', 'Marca'],
-            ].map(([key, label]) => (
-              <div className="mb-2" key={key}>
-                <label style={{ fontSize: '0.78rem', fontWeight: '600' }}>{label}</label>
-                <input
-                  className="form-control form-control-sm"
-                  value={campos[key]}
-                  onChange={e => setCampos(prev => ({ ...prev, [key]: e.target.value }))}
-                />
-              </div>
-            ))}
-
-            <div className="mb-2">
-              <label style={{ fontSize: '0.78rem', fontWeight: '600' }}>UL</label>
-              <select className="form-select form-select-sm"
-                value={campos.unidadDeLectura}
-                onChange={e => setCampos(prev => ({ ...prev, unidadDeLectura: e.target.value }))}>
-                <option value="">Seleccionar UL</option>
-                {uls.map(ul => <option key={ul} value={ul}>{ul}</option>)}
-              </select>
-            </div>
-
-            <div className="mb-2">
-              <label style={{ fontSize: '0.78rem', fontWeight: '600' }}>Estado</label>
-              <select className="form-select form-select-sm"
-                value={campos.estado}
-                onChange={e => setCampos(prev => ({ ...prev, estado: e.target.value }))}>
-                <option value="pendiente">Pendiente</option>
-                <option value="localizado">Localizado</option>
-                <option value="perdido">Perdido</option>
-                <option value="revision">Revisión</option>
-              </select>
-            </div>
-
-            <div className="mb-3">
-              <label style={{ fontSize: '0.78rem', fontWeight: '600' }}>Observaciones</label>
-              <textarea className="form-control form-control-sm" rows={2}
-                value={campos.observaciones}
-                onChange={e => setCampos(prev => ({ ...prev, observaciones: e.target.value }))}
-              />
-            </div>
-
-            <button
-              className="btn btn-primary w-100 btn-sm"
-              onClick={handleGuardar}
-              disabled={guardando || !campos.instalacion}
-            >
-              {guardando
-                ? <Spinner size="sm" />
-                : medidorEdit ? '💾 Guardar cambios' : '➕ Agregar medidor'
-              }
-            </button>
+            <FormularioMedidor
+              campos={campos} setCampos={setCampos} uls={uls}
+              nuevoPunto={nuevoPunto} medidorEdit={medidorEdit}
+              guardando={guardando} onGuardar={handleGuardar} onCerrar={cerrarFormulario}
+            />
           </div>
         )}
       </div>
+
+      {/* MODAL en MÓVIL — aparece encima de todo */}
+      <Modal show={formulario && esMobil} onHide={cerrarFormulario} fullscreen="sm-down">
+        <Modal.Header closeButton>
+          <Modal.Title style={{ fontSize: '1rem' }}>
+            {medidorEdit ? '✏️ Editar medidor' : '➕ Nuevo medidor'}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <FormularioMedidor
+            campos={campos} setCampos={setCampos} uls={uls}
+            nuevoPunto={nuevoPunto} medidorEdit={medidorEdit}
+            guardando={guardando} onGuardar={handleGuardar} onCerrar={cerrarFormulario}
+          />
+        </Modal.Body>
+      </Modal>
     </div>
   )
 }
