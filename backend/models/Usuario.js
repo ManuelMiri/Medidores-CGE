@@ -20,7 +20,7 @@ const usuarioSchema = new mongoose.Schema(
       type: String,
       required: [true, 'La contraseña es obligatoria'],
       minlength: 6,
-      select: false, // nunca se devuelve en consultas por defecto
+      select: false,
     },
     rol: {
       type: String,
@@ -30,7 +30,12 @@ const usuarioSchema = new mongoose.Schema(
     zona: {
       type: String,
       trim: true,
-      default: null, // zona CGE asignada (ej: "MAULE")
+      default: null,
+    },
+    // ULs asignadas al usuario — solo ve medidores de estas ULs
+    unidadesLectura: {
+      type: [String],
+      default: [],
     },
     activo: {
       type: Boolean,
@@ -42,13 +47,11 @@ const usuarioSchema = new mongoose.Schema(
   }
 )
 
-// Encripta la contraseña antes de guardar
 usuarioSchema.pre('save', async function () {
   if (!this.isModified('password')) return
   this.password = await bcrypt.hash(this.password, 10)
 })
 
-// Método para comparar contraseña en el login
 usuarioSchema.methods.verificarPassword = async function (passwordIngresada) {
   return bcrypt.compare(passwordIngresada, this.password)
 }
