@@ -15,15 +15,14 @@ function generarToken(usuario) {
 }
 
 // POST /api/auth/registro
-// Crea un nuevo usuario (solo admin debería poder hacer esto en producción)
+// Crea un nuevo usuario 
 router.post('/registro', async (req, res) => {
   try {
-    const { nombre, email, password, rol, zona } = req.body
-
+    const { nombre, email, password, rol, zona, unidadesLectura } = req.body
     const existe = await Usuario.findOne({ email })
     if (existe) return res.status(400).json({ error: 'El email ya está registrado' })
 
-    const usuario = await Usuario.create({ nombre, email, password, rol, zona })
+    const usuario = await Usuario.create({ nombre, email, password, rol, zona, unidadesLectura })
 
     res.status(201).json({
       mensaje: 'Usuario creado correctamente',
@@ -51,7 +50,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email y contraseña son obligatorios' })
     }
 
-    // Buscar usuario incluyendo el password (está oculto por defecto con select: false)
+    // Buscar usuario incluyendo el password, está oculto por defecto con select: false
     const usuario = await Usuario.findOne({ email }).select('+password')
     if (!usuario) return res.status(401).json({ error: 'Credenciales incorrectas' })
 
@@ -76,7 +75,7 @@ router.post('/login', async (req, res) => {
 })
 
 // GET /api/auth/perfil
-// Devuelve los datos del usuario autenticado (requiere token)
+// Devuelve los datos del usuario autenticado, requiere token
 router.get('/perfil', verificarToken, async (req, res) => {
   try {
     const usuario = await Usuario.findById(req.usuarioId)
@@ -100,8 +99,7 @@ router.post('/logout', verificarToken, async (req, res) => {
     })
     res.json({ mensaje: 'Sesión cerrada correctamente' })
   } catch (err) {
-    // Si el token ya estaba invalidado (doble clic en "cerrar sesión", por
-    // ejemplo), el índice "unique" del modelo lanza un error de duplicado.
+    // Si el token ya estaba invalidado, el índice "unique" del modelo lanza un error de duplicado.
     // No es un error real para quien usa la app, así que igual respondemos
     // como éxito.
     if (err.code === 11000) {
@@ -121,8 +119,8 @@ async function verificarToken(req, res, next) {
   const token = authHeader.split(' ')[1]
 
   try {
-    // Revisamos primero si este token ya fue invalidado (el usuario cerró
-    // sesión). Esta consulta va antes de jwt.verify porque es más barata:
+    // Revisamos primero si este token ya fue invalidado, el usuario cerró
+    // sesión. Esta consulta va antes de jwt.verify 
     // no tiene sentido gastar en verificar la firma de un token que de
     // todas formas vamos a rechazar.
     const estaInvalidado = await TokenInvalido.exists({ token })
