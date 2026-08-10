@@ -3,6 +3,7 @@ const express = require('express')
 const router = express.Router()
 const Medidor = require('../models/Medidor')
 const { proteger, soloRol } = require('../middleware/auth')
+const cache = require('../utils/cache')
 
 // GET /api/medidores
 // Lista medidores filtrados por UL del usuario autenticado
@@ -109,18 +110,34 @@ router.get('/cercanos', proteger, async (req, res) => {
 })
 
 // GET /api/medidores/uls
-// Devuelve las ULs disponibles según el rol del usuario
+// Devuelve las ULs disponibles según el rol del usuario.
+//
+// Para admin/supervisor esto corre un Medidor.distinct() sobre TODA la
+// colección, que es una consulta cara y cuyo resultado casi no cambia
+// minuto a minuto. Por eso la guardamos en caché por 60 segundos: durante
+// ese minuto, todas las peticiones se responden desde memoria en vez de
+// volver a golpear la base de datos.
 router.get('/uls', proteger, async (req, res) => {
   try {
     let uls
 
     if (req.usuario.rol === 'lector') {
-      // Lector: solo sus ULs asignadas
+      // Lector: solo sus ULs asignadas (dato que ya viene en el token/usuario,
+      // no necesita consulta a la base de datos, así que no vale la pena
+      // cachearlo)
       uls = req.usuario.unidadesLectura
     } else {
-      // Admin/supervisor: todas las ULs que existen en la BD
+      const claveCache = 'uls:todas'
+      const cacheado = cache.obtener(claveCache)
+
+      if (cacheado) {
+        return res.json({ uls: cacheado })
+      }
+
       uls = await Medidor.distinct('unidadDeLectura')
       uls = uls.filter(Boolean).sort()
+
+      cache.guardar(claveCache, uls, 60)
     }
 
     res.json({ uls })
