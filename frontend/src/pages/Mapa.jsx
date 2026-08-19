@@ -5,6 +5,7 @@ import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap
 import L from 'leaflet'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import CargaKml from '../components/CargaKml'
 import 'leaflet/dist/leaflet.css'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -355,6 +356,12 @@ export default function Mapa() {
                 <p style={{ fontSize: '0.75rem', color: '#718096', marginTop: '0.4rem', textAlign: 'center' }}>
                   Toca el mapa para colocar el punto
                 </p>
+              )}
+
+              {usuario.rol === 'admin' && (
+                <div className="mt-2">
+                  <CargaKml onImportado={() => { cargarUls(); cargarMedidores() }} />
+                </div>
               )}
             </div>
           </div>
