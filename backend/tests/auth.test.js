@@ -1,6 +1,6 @@
 // tests/auth.test.js
 // Antes de cargar la app, dejamos lista la clave con la que se firman los
-// tokens en este entorno de pruebas (independiente de tu .env real).
+// tokens en este entorno de pruebas 
 process.env.JWT_SECRET = 'clave_secreta_de_prueba'
 
 const request = require('supertest')

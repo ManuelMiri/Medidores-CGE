@@ -5,7 +5,7 @@ const request = require('supertest')
 const app = require('../app')
 const { connect, clearDatabase, closeDatabase } = require('./setupTestDB')
 
-// Función de ayuda: registra un usuario con el rol indicado y devuelve su
+// Registra un usuario con el rol indicado y devuelve su
 // token, para no repetir el mismo bloque de código en cada test.
 async function crearUsuarioYObtenerToken(rol) {
   const email = `usuario_${rol}_${Date.now()}@test.com`

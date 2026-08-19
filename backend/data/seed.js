@@ -21,7 +21,7 @@ async function seed() {
     const datos = JSON.parse(fs.readFileSync(rutaArchivo, 'utf8'))
     console.log(`📄 ${datos.length} medidores encontrados en el archivo`)
 
-    // Limpiar la colección antes de importar (evita duplicados si corres el seed dos veces)
+    // Limpiar la colección antes de importar evita duplicados si corres el seed dos veces
     await Medidor.deleteMany({})
     console.log('🧹 Colección limpiada')
 

@@ -1,8 +1,7 @@
 // utils/cache.js
-// Caché simple en memoria, con tiempo de expiración (TTL). No usa ninguna
-// librería externa ni un servidor de caché aparte (como Redis) — para el
-// tamaño de este proyecto, un Map en memoria alcanza y es fácil de
-// entender: guardamos un valor y la hora en la que "vence".
+// Caché simple en memoria, con tiempo de expiracion TTL, no usa ninguna
+// libreria externa ni un servidor de cache aparte como Redis — para el
+// tamaño de este proyecto, un map en memoria alcanza 
 const almacen = new Map()
 
 function obtener(clave) {

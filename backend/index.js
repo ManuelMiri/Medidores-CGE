@@ -20,26 +20,26 @@ async function iniciar() {
   }
 }
 
-// Para la estrategia de escalabilidad uso el módulo cluster que ya trae
-// Node.js: en vez de correr un solo proceso (que solo usa un núcleo de CPU),
-// levanto un proceso worker por núcleo, así se reparte la carga.
+// Para la estrategia de escalabilidad uso el modulo cluster que ya trae
+// Node.js, en vez de correr un solo proceso,
+// levanto un proceso worker por nucleo, asi se reparte la carga.
 //
 // El proceso principal no atiende peticiones, solo reparte las conexiones
 // entrantes entre los workers. Si un worker se cae, levanto uno nuevo en
 // su lugar para que el servicio no se caiga completo por un solo proceso.
 //
-// En desarrollo dejo esto desactivado (un solo proceso), porque mezclar
+// En desarrollo dejo esto desactivado un solo proceso, porque mezclar
 // nodemon con cluster hace que los reinicios sean confusos mientras programo.
 const usarCluster = process.env.NODE_ENV === 'production'
 
 if (usarCluster && cluster.isPrimary) {
-  // Acá tuve un problema: usaba os.cpus().length directo para decidir
-  // cuántos workers levantar, pero dentro de un contenedor (como el de
-  // Railway) ese número no es confiable — devuelve los núcleos de la
-  // máquina física completa, no los que realmente tiene asignados mi
-  // contenedor. Eso hacía que levantara muchos más workers de los que
-  // la memoria disponible aguantaba, y el servidor se caía y reiniciaba
-  // solo de forma intermitente. Lo arreglé poniendo un tope máximo.
+  // Aca tuve un problema, usaba os.cpus().length directo para decidir
+  // cuantos workers levantar, pero dentro de un contenedor como el de
+  // Railway, ese numero no es confiable , devuelve los nucleos de la
+  // maquina fisica completa, no los que realmente tiene asignados mi
+  // contenedor. Eso hacia que levantara muchos mas workers de los que
+  // la memoria disponible aguantaba y el servidor se caia y reiniciaba
+  // solo de forma intermitente, lo arreglé poniendo un tope máximo.
   const nucleos = Math.min(os.cpus().length, Number(process.env.WEB_CONCURRENCY) || 2)
   console.log(`🧠 Modo cluster activo: iniciando ${nucleos} proceso(s) worker`)
 

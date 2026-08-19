@@ -10,7 +10,7 @@ async function proteger(req, res, next) {
     }
     const token = authHeader.split(' ')[1]
 
-    // NUEVO: si este token ya fue invalidado (el usuario cerró sesión),
+    // si este token ya fue invalidado (el usuario cerró sesión),
     // lo rechazamos aunque su firma JWT todavía sea válida.
     // Esta consulta va primero porque es más barata que verificar el JWT
     // y buscar el usuario en la base de datos.
