@@ -168,4 +168,26 @@ router.patch('/usuarios/:id/estado', proteger, soloRol('admin'), async (req, res
   }
 })
 
+// DELETE /api/auth/usuarios/:id — solo admin
+// Borra la cuenta definitivamente. Ojo: esto no toca el historial de los
+// medidores que ese usuario haya modificado — esas entradas quedan con
+// su nombre guardado como texto (así se diseñó el historial desde el
+// principio), así que borrar el usuario no rompe esos registros.
+router.delete('/usuarios/:id', proteger, soloRol('admin'), async (req, res) => {
+  try {
+    // Mismo resguardo que en /estado: un admin no puede borrarse a sí
+    // mismo y quedarse sin ninguna cuenta admin activa por accidente.
+    if (req.params.id === String(req.usuario._id)) {
+      return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' })
+    }
+
+    const usuario = await Usuario.findByIdAndDelete(req.params.id)
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' })
+
+    res.json({ mensaje: 'Usuario eliminado correctamente' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 module.exports = router

@@ -120,6 +120,16 @@ export default function GestionUsuarios() {
     }
   }
 
+  async function eliminarUsuario(id, nombre) {
+    if (!confirm(`¿Eliminar la cuenta de ${nombre}? Esta acción no se puede deshacer.`)) return
+    try {
+      await api.delete(`/auth/usuarios/${id}`)
+      cargarUsuarios()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error al eliminar el usuario')
+    }
+  }
+
   return (
     <>
       <button className="btn btn-outline-light btn-sm" onClick={abrir}>👥 Usuarios</button>
@@ -144,6 +154,7 @@ export default function GestionUsuarios() {
                     <th>Email</th>
                     <th>Rol</th>
                     <th>Estado</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -166,6 +177,15 @@ export default function GestionUsuarios() {
                           onClick={() => cambiarEstado(u._id, !u.activo)}
                         >
                           {u.activo ? '✅ Activo' : '⛔ Inactivo'}
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          title="Eliminar cuenta"
+                          onClick={() => eliminarUsuario(u._id, u.nombre)}
+                        >
+                          🗑️
                         </button>
                       </td>
                     </tr>

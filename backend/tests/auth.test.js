@@ -226,3 +226,50 @@ describe('PATCH /api/auth/usuarios/:id/estado', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('DELETE /api/auth/usuarios/:id', () => {
+  test('un admin puede eliminar a otro usuario', async () => {
+    const { token: tokenAdmin } = await crearUsuarioYObtenerToken('admin')
+    const { usuario: lector } = await crearUsuarioYObtenerToken('lector')
+
+    const res = await request(app)
+      .delete(`/api/auth/usuarios/${lector._id}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+
+    expect(res.status).toBe(200)
+
+    const buscado = await Usuario.findById(lector._id)
+    expect(buscado).toBeNull()
+  })
+
+  test('un no-admin no puede eliminar usuarios', async () => {
+    const { token: tokenSupervisor } = await crearUsuarioYObtenerToken('supervisor')
+    const { usuario: lector } = await crearUsuarioYObtenerToken('lector')
+
+    const res = await request(app)
+      .delete(`/api/auth/usuarios/${lector._id}`)
+      .set('Authorization', `Bearer ${tokenSupervisor}`)
+
+    expect(res.status).toBe(403)
+  })
+
+  test('un admin no puede eliminarse a sí mismo', async () => {
+    const { token: tokenAdmin, usuario: admin } = await crearUsuarioYObtenerToken('admin')
+
+    const res = await request(app)
+      .delete(`/api/auth/usuarios/${admin._id}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+
+    expect(res.status).toBe(400)
+  })
+
+  test('devuelve 404 si el usuario no existe', async () => {
+    const { token: tokenAdmin } = await crearUsuarioYObtenerToken('admin')
+
+    const res = await request(app)
+      .delete('/api/auth/usuarios/000000000000000000000000')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+
+    expect(res.status).toBe(404)
+  })
+})
