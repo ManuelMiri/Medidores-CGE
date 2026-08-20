@@ -11,6 +11,17 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 })
 
+// Chequeo de arranque: si falta alguna de las 3 variables, lo dejo bien
+// visible en los logs de Railway en vez de esperar a que reviente en el
+// primer intento de subir una foto con un error genérico de Cloudinary.
+const faltantes = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']
+  .filter((clave) => !process.env[clave])
+if (faltantes.length > 0) {
+  console.error(`⚠️ Faltan variables de entorno de Cloudinary: ${faltantes.join(', ')}`)
+} else {
+  console.log('✅ Cloudinary configurado correctamente')
+}
+
 // Sube un buffer de imagen (lo que llega desde multer en memoria) a
 // Cloudinary y devuelve la URL pública. Uso upload_stream porque no
 // tenemos el archivo en disco, solo en memoria.
