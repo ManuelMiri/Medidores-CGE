@@ -6,6 +6,7 @@ import L from 'leaflet'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
+import CapturaFoto from '../components/CapturaFoto'
 import 'leaflet/dist/leaflet.css'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -61,7 +62,7 @@ function CapturarClick({ onClickMapa, modoAgregar }) {
 }
 
 // Formulario reutilizable — mismo para modal y panel lateral
-function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, guardando, onGuardar, onCerrar }) {
+function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, guardando, onGuardar, onCerrar, onFotoSubida }) {
   return (
     <>
       {nuevoPunto && (
@@ -130,6 +131,16 @@ function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, gu
           : medidorEdit ? '💾 Guardar cambios' : '➕ Agregar medidor'
         }
       </button>
+
+      {/* Las fotos se suben directo contra el medidor ya guardado, así
+          que solo tienen sentido cuando estamos editando uno existente. */}
+      {medidorEdit && (
+        <CapturaFoto
+          instalacion={medidorEdit.instalacion}
+          fotosExistentes={medidorEdit.fotos}
+          onFotoSubida={onFotoSubida}
+        />
+      )}
     </>
   )
 }
@@ -276,6 +287,14 @@ export default function Mapa() {
       await api.delete(`/medidores/${instalacion}`)
       await cargarMedidores()
     } catch (err) { alert(err.response?.data?.error || 'Error al eliminar') }
+  }
+
+  // El backend devuelve el medidor ya actualizado (con la foto nueva
+  // adentro), así que solo actualizamos el estado local con eso — no hace
+  // falta otro fetch aparte para refrescar el panel de fotos.
+  function handleFotoSubida(medidorActualizado) {
+    setMedidorEdit(medidorActualizado)
+    cargarMedidores()
   }
 
   if (cargando && uls.length === 0) return (
@@ -433,7 +452,7 @@ export default function Mapa() {
               const icono = iconos[m.estado] || iconos.pendiente
               return (
                 <Marker key={m._id} position={[lat, lng]} icon={icono}>
-                  <Popup minWidth={200}>
+                  <Popup minWidth={220} maxWidth={260}>
                     <div>
                       <h6 style={{ fontSize: '0.9rem' }} className="mb-1">📍 {m.instalacion}</h6>
                       <hr style={{ margin: '0.3rem 0' }} />
@@ -455,6 +474,15 @@ export default function Mapa() {
                             onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
                         )}
                       </div>
+
+                      {/* Foto directo desde el popup, sin tener que entrar
+                          a editar — así el técnico saca la foto ahí mismo,
+                          parado frente al medidor. */}
+                      <CapturaFoto
+                        instalacion={m.instalacion}
+                        fotosExistentes={m.fotos}
+                        onFotoSubida={() => cargarMedidores()}
+                      />
                     </div>
                   </Popup>
                 </Marker>
@@ -481,6 +509,7 @@ export default function Mapa() {
               campos={campos} setCampos={setCampos} uls={uls}
               nuevoPunto={nuevoPunto} medidorEdit={medidorEdit}
               guardando={guardando} onGuardar={handleGuardar} onCerrar={cerrarFormulario}
+              onFotoSubida={handleFotoSubida}
             />
           </div>
         )}
@@ -498,6 +527,7 @@ export default function Mapa() {
             campos={campos} setCampos={setCampos} uls={uls}
             nuevoPunto={nuevoPunto} medidorEdit={medidorEdit}
             guardando={guardando} onGuardar={handleGuardar} onCerrar={cerrarFormulario}
+            onFotoSubida={handleFotoSubida}
           />
         </Modal.Body>
       </Modal>
