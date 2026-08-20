@@ -30,6 +30,24 @@ const ubicacionSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// Cada foto guarda su propia ubicación (lat/lng) y quién/cuándo la subió,
+// no solo la URL de Cloudinary. Esto es distinto de 'ubicacion' del
+// medidor: esa es la posición del medidor en el mapa, esta es dónde
+// estaba parado el técnico cuando sacó la foto.
+const fotoSchema = new mongoose.Schema(
+  {
+    url: { type: String, required: true },
+    nombre: { type: String, required: true, trim: true },
+    coordenadas: {
+      lat: { type: Number, required: true },
+      lng: { type: Number, required: true },
+    },
+    subidoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario' },
+    fecha: { type: Date, default: Date.now },
+  },
+  { _id: false }
+)
+
 const medidorSchema = new mongoose.Schema(
   {
     instalacion: {
@@ -55,7 +73,7 @@ const medidorSchema = new mongoose.Schema(
       enum: ['pendiente', 'localizado', 'perdido', 'revision'],
       default: 'pendiente',
     },
-    fotos:             { type: [String], default: [] },
+    fotos:             { type: [fotoSchema], default: [] },
     observaciones:     { type: String, trim: true, default: null },
     localizadoPor:     { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', default: null },
     fechaLocalizacion: { type: Date, default: null },

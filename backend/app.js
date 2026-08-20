@@ -17,6 +17,9 @@ app.use(express.urlencoded({ extended: true }))
 const rutasMedidores = require('./rutas/medidores')
 app.use('/api/medidores', rutasMedidores)
 
+const rutasFotos = require('./rutas/fotos')
+app.use('/api/medidores', rutasFotos)
+
 const rutasAuth = require('./rutas/auth')
 app.use('/api/auth', rutasAuth)
 
