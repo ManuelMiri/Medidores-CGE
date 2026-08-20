@@ -139,6 +139,29 @@ router.patch('/usuarios/:id/rol', proteger, soloRol('admin'), async (req, res) =
   }
 })
 
+// PATCH /api/auth/usuarios/:id/uls — solo admin
+// Cambia las ULs (rutas) que un lector puede ver y usar. Es lo que le da
+// acceso a una ruta importada por KML sin tener que subir/bajar su rol.
+router.patch('/usuarios/:id/uls', proteger, soloRol('admin'), async (req, res) => {
+  try {
+    const { unidadesLectura } = req.body
+    if (!Array.isArray(unidadesLectura)) {
+      return res.status(400).json({ error: 'unidadesLectura debe ser un arreglo de strings' })
+    }
+
+    const usuario = await Usuario.findByIdAndUpdate(
+      req.params.id,
+      { unidadesLectura: unidadesLectura.map((ul) => ul.trim()).filter(Boolean) },
+      { new: true, runValidators: true }
+    ).select('-password')
+
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' })
+    res.json(usuario)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // PATCH /api/auth/usuarios/:id/estado — solo admin
 // Activa/desactiva una cuenta. No la borramos para no perder el rastro
 // de quién hizo qué en el historial de medidores.

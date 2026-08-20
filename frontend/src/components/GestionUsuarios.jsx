@@ -10,6 +10,40 @@ import api from '../services/api'
 
 const ROLES = ['lector', 'supervisor', 'admin']
 
+// Fila editable de ULs — solo tiene sentido para lectores (admin/supervisor
+// ya ven todo). Guarda su propio texto mientras escribes, y solo dispara
+// el PATCH cuando confirmas con el botón, para no mandar una petición por
+// cada letra que tipeas.
+function EditorUls({ usuario, onGuardar }) {
+  const [texto, setTexto] = useState((usuario.unidadesLectura || []).join(', '))
+  const [guardando, setGuardando] = useState(false)
+
+  async function guardar() {
+    setGuardando(true)
+    try {
+      const uls = texto.split(',').map((ul) => ul.trim()).filter(Boolean)
+      await onGuardar(usuario._id, uls)
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div className="d-flex gap-1">
+      <input
+        className="form-control form-control-sm"
+        style={{ minWidth: '160px' }}
+        placeholder="ej: E3559701, E3510021"
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+      />
+      <button className="btn btn-sm btn-outline-primary" onClick={guardar} disabled={guardando}>
+        {guardando ? <Spinner size="sm" /> : '💾'}
+      </button>
+    </div>
+  )
+}
+
 function FormularioNuevoUsuario({ onCreado }) {
   const vacio = { nombre: '', email: '', password: '', rol: 'lector', zona: 'MAULE', unidadesLectura: '' }
   const [campos, setCampos] = useState(vacio)
@@ -120,6 +154,15 @@ export default function GestionUsuarios() {
     }
   }
 
+  async function guardarUls(id, unidadesLectura) {
+    try {
+      await api.patch(`/auth/usuarios/${id}/uls`, { unidadesLectura })
+      cargarUsuarios()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error al guardar las ULs')
+    }
+  }
+
   async function eliminarUsuario(id, nombre) {
     if (!confirm(`¿Eliminar la cuenta de ${nombre}? Esta acción no se puede deshacer.`)) return
     try {
@@ -153,6 +196,7 @@ export default function GestionUsuarios() {
                     <th>Nombre</th>
                     <th>Email</th>
                     <th>Rol</th>
+                    <th>ULs</th>
                     <th>Estado</th>
                     <th></th>
                   </tr>
@@ -170,6 +214,15 @@ export default function GestionUsuarios() {
                         >
                           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                         </select>
+                      </td>
+                      <td>
+                        {/* Admin/supervisor ven todas las ULs igual, así
+                            que restringir con unidadesLectura solo aplica
+                            a lector. */}
+                        {u.rol === 'lector'
+                          ? <EditorUls usuario={u} onGuardar={guardarUls} />
+                          : <span className="text-muted" style={{ fontSize: '0.75rem' }}>Ve todas</span>
+                        }
                       </td>
                       <td>
                         <button

@@ -273,3 +273,55 @@ describe('DELETE /api/auth/usuarios/:id', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('PATCH /api/auth/usuarios/:id/uls', () => {
+  test('un admin puede asignarle ULs a un lector', async () => {
+    const { token: tokenAdmin } = await crearUsuarioYObtenerToken('admin')
+    const { usuario: lector } = await crearUsuarioYObtenerToken('lector')
+
+    const res = await request(app)
+      .patch(`/api/auth/usuarios/${lector._id}/uls`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ unidadesLectura: ['E3559701', 'E3510021'] })
+
+    expect(res.status).toBe(200)
+    expect(res.body.unidadesLectura).toEqual(['E3559701', 'E3510021'])
+  })
+
+  test('recorta espacios y descarta strings vacíos', async () => {
+    const { token: tokenAdmin } = await crearUsuarioYObtenerToken('admin')
+    const { usuario: lector } = await crearUsuarioYObtenerToken('lector')
+
+    const res = await request(app)
+      .patch(`/api/auth/usuarios/${lector._id}/uls`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ unidadesLectura: [' E3559701 ', '', 'E3510021'] })
+
+    expect(res.status).toBe(200)
+    expect(res.body.unidadesLectura).toEqual(['E3559701', 'E3510021'])
+  })
+
+  test('rechaza si unidadesLectura no es un arreglo', async () => {
+    const { token: tokenAdmin } = await crearUsuarioYObtenerToken('admin')
+    const { usuario: lector } = await crearUsuarioYObtenerToken('lector')
+
+    const res = await request(app)
+      .patch(`/api/auth/usuarios/${lector._id}/uls`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ unidadesLectura: 'E3559701' })
+
+    expect(res.status).toBe(400)
+  })
+
+  test('un no-admin no puede asignar ULs', async () => {
+    const { token: tokenSupervisor } = await crearUsuarioYObtenerToken('supervisor')
+    const { usuario: lector } = await crearUsuarioYObtenerToken('lector')
+
+    const res = await request(app)
+      .patch(`/api/auth/usuarios/${lector._id}/uls`)
+      .set('Authorization', `Bearer ${tokenSupervisor}`)
+      .send({ unidadesLectura: ['E3559701'] })
+
+    expect(res.status).toBe(403)
+  })
+})
