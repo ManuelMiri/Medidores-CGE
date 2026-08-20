@@ -154,6 +154,7 @@ export default function Mapa() {
   const [cargando, setCargando]         = useState(true)
   const [error, setError]               = useState(null)
   const [busqueda, setBusqueda]         = useState('')
+  const [filtroUl, setFiltroUl]         = useState('')
   const [centroMapa, setCentroMapa]     = useState(null)
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
@@ -343,15 +344,36 @@ export default function Mapa() {
               <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
                 📋 Unidades de Lectura
               </p>
-              {uls.map(ul => (
-                <div key={ul} className="form-check mb-1">
-                  <input className="form-check-input" type="checkbox"
-                    id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
-                    onChange={() => toggleUl(ul)} />
-                  <label className="form-check-label" htmlFor={`ul-${ul}`}
-                    style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
-                </div>
-              ))}
+
+              {/* Con 200+ rutas, la lista completa de checkboxes se hace
+                  eterna. Este filtro corta la lista visible al toque, y el
+                  contenedor de abajo tiene una altura tope con scroll para
+                  que nunca vuelva a crecer indefinidamente. */}
+              <input
+                type="text"
+                className="form-control form-control-sm mb-2"
+                placeholder="Filtrar UL..."
+                value={filtroUl}
+                onChange={(e) => setFiltroUl(e.target.value)}
+              />
+
+              <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                {uls
+                  .filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
+                  .map(ul => (
+                    <div key={ul} className="form-check mb-1">
+                      <input className="form-check-input" type="checkbox"
+                        id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
+                        onChange={() => toggleUl(ul)} />
+                      <label className="form-check-label" htmlFor={`ul-${ul}`}
+                        style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+                    </div>
+                  ))
+                }
+                {filtroUl && uls.filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase())).length === 0 && (
+                  <p className="text-muted" style={{ fontSize: '0.78rem' }}>Sin resultados</p>
+                )}
+              </div>
             </div>
 
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
