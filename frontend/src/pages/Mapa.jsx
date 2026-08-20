@@ -431,8 +431,15 @@ export default function Mapa() {
 
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
             <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              // CARTO en vez del tile.openstreetmap.org gratuito: mismo mapa
+              // base, pero servido desde un CDN rápido pensado para uso en
+              // producción (el de OSM es solo para uso liviano/pruebas y no
+              // tiene CDN detrás, por eso se sentía lento al moverse).
+              attribution='&copy; <a href="https://www.openstreetmap.org">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              subdomains="abcd"
+              maxZoom={20}
+              keepBuffer={4}
             />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <CapturarClick
