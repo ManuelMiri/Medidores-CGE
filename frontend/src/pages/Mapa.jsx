@@ -7,6 +7,7 @@ import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
 import CapturaFoto from '../components/CapturaFoto'
+import GestionUsuarios from '../components/GestionUsuarios'
 import 'leaflet/dist/leaflet.css'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -322,6 +323,7 @@ export default function Mapa() {
           <span className="text-white small d-none d-md-block">
             👤 {usuario.nombre} · {usuario.rol}
           </span>
+          {usuario.rol === 'admin' && <GestionUsuarios />}
           <button className="btn btn-outline-light btn-sm" onClick={logout}>Salir</button>
         </div>
       </nav>
@@ -432,14 +434,16 @@ export default function Mapa() {
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               // CARTO en vez del tile.openstreetmap.org gratuito: mismo mapa
-              // base, pero servido desde un CDN rápido pensado para uso en
-              // producción (el de OSM es solo para uso liviano/pruebas y no
-              // tiene CDN detrás, por eso se sentía lento al moverse).
+              // base, pero servido desde un CDN pensado para producción.
               attribution='&copy; <a href="https://www.openstreetmap.org">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
               url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
               subdomains="abcd"
               maxZoom={20}
-              keepBuffer={4}
+              // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
+              // pixel que arrastras satura la conexión y todo se siente
+              // más lento. Con esto, solo pide tiles nuevos cuando sueltas
+              // el mapa (terminaste de moverlo), no mientras lo arrastras.
+              updateWhenIdle={true}
             />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <CapturarClick

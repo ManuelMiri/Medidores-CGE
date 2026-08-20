@@ -49,20 +49,15 @@ const kmlDePrueba = `<?xml version="1.0" encoding="UTF-8"?>
   </Document>
 </kml>`
 
-// Crea un usuario directo en la base (sin pasar por /registro, que en este
-// proyecto todavía está abierto) y devuelve su token para las pruebas.
+const { crearUsuarioYObtenerToken } = require('./helpers')
+
+// Antes esto creaba el usuario pegándole a /api/auth/registro. Ahora que
+// esa ruta requiere ser admin, uso el helper compartido que lo crea
+// directo en la base. Mantengo el mismo nombre para no reescribir cada
+// test de este archivo.
 async function crearUsuarioYLoguear(rol) {
-  await request(app).post('/api/auth/registro').send({
-    nombre: `Usuario ${rol}`,
-    email: `${rol}@test.com`,
-    password: '123456',
-    rol,
-  })
-  const loginRes = await request(app).post('/api/auth/login').send({
-    email: `${rol}@test.com`,
-    password: '123456',
-  })
-  return loginRes.body.token
+  const { token } = await crearUsuarioYObtenerToken(rol)
+  return token
 }
 
 beforeAll(async () => {

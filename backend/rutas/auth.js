@@ -4,6 +4,7 @@ const router = express.Router()
 const jwt = require('jsonwebtoken')
 const Usuario = require('../models/Usuario')
 const TokenInvalido = require('../models/TokenInvalido')
+const { proteger, soloRol } = require('../middleware/auth')
 
 // Genera un token JWT con el id y rol del usuario
 function generarToken(usuario) {
@@ -15,8 +16,10 @@ function generarToken(usuario) {
 }
 
 // POST /api/auth/registro
-// Crea un nuevo usuario 
-router.post('/registro', async (req, res) => {
+// Crea un nuevo usuario. Antes esto estaba abierto (cualquiera podía
+// crearse una cuenta admin sin loguearse) — ahora solo un admin ya
+// logueado puede crear cuentas nuevas.
+router.post('/registro', proteger, soloRol('admin'), async (req, res) => {
   try {
     const { nombre, email, password, rol, zona, unidadesLectura } = req.body
     const existe = await Usuario.findOne({ email })
@@ -76,22 +79,16 @@ router.post('/login', async (req, res) => {
 
 // GET /api/auth/perfil
 // Devuelve los datos del usuario autenticado, requiere token
-router.get('/perfil', verificarToken, async (req, res) => {
-  try {
-    const usuario = await Usuario.findById(req.usuarioId)
-    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' })
-    res.json(usuario)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
+router.get('/perfil', proteger, async (req, res) => {
+  // 'proteger' ya buscó al usuario en la base y lo dejó en req.usuario,
+  // así que no hace falta otra consulta como antes.
+  res.json(req.usuario)
 })
 
 // POST /api/auth/logout
 // Invalida el token actual para que no se pueda volver a usar, aunque su
 // firma JWT siga siendo técnicamente válida hasta que expire por sí sola.
-// Va protegida con verificarToken porque para cerrar una sesión primero hay
-// que demostrar que tienes una sesión válida.
-router.post('/logout', verificarToken, async (req, res) => {
+router.post('/logout', proteger, async (req, res) => {
   try {
     await TokenInvalido.create({
       token: req.token,
@@ -109,39 +106,66 @@ router.post('/logout', verificarToken, async (req, res) => {
   }
 })
 
-// Middleware: verifica que el token JWT sea válido
-async function verificarToken(req, res, next) {
-  const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Token no proporcionado' })
-  }
-
-  const token = authHeader.split(' ')[1]
-
+// GET /api/auth/usuarios — solo admin
+// Lista todos los usuarios para que el admin los pueda gestionar.
+router.get('/usuarios', proteger, soloRol('admin'), async (req, res) => {
   try {
-    // Revisamos primero si este token ya fue invalidado, el usuario cerró
-    // sesión. Esta consulta va antes de jwt.verify 
-    // no tiene sentido gastar en verificar la firma de un token que de
-    // todas formas vamos a rechazar.
-    const estaInvalidado = await TokenInvalido.exists({ token })
-    if (estaInvalidado) {
-      return res.status(401).json({ error: 'Sesión cerrada. Vuelve a iniciar sesión.' })
+    const usuarios = await Usuario.find().select('-password').sort({ nombre: 1 })
+    res.json({ usuarios })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/auth/usuarios/:id/rol — solo admin
+router.patch('/usuarios/:id/rol', proteger, soloRol('admin'), async (req, res) => {
+  try {
+    const { rol } = req.body
+    const rolesValidos = ['lector', 'supervisor', 'admin']
+    if (!rolesValidos.includes(rol)) {
+      return res.status(400).json({ error: `Rol inválido. Debe ser uno de: ${rolesValidos.join(', ')}` })
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    req.usuarioId = decoded.id
-    req.usuarioRol = decoded.rol
+    const usuario = await Usuario.findByIdAndUpdate(
+      req.params.id,
+      { rol },
+      { new: true, runValidators: true }
+    ).select('-password')
 
-    // Dejamos el token y su fecha de expiración disponibles en req para que
-    // la ruta de logout pueda invalidarlo sin tener que leer el header de
-    // nuevo. decoded.exp viene en segundos, Date usa milisegundos.
-    req.token = token
-    req.tokenExpira = new Date(decoded.exp * 1000)
-
-    next()
-  } catch {
-    res.status(401).json({ error: 'Token inválido o expirado' })
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' })
+    res.json(usuario)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
-}
+})
+
+// PATCH /api/auth/usuarios/:id/estado — solo admin
+// Activa/desactiva una cuenta. No la borramos para no perder el rastro
+// de quién hizo qué en el historial de medidores.
+router.patch('/usuarios/:id/estado', proteger, soloRol('admin'), async (req, res) => {
+  try {
+    const { activo } = req.body
+    if (typeof activo !== 'boolean') {
+      return res.status(400).json({ error: 'El campo activo debe ser true o false' })
+    }
+
+    // Un admin no puede desactivarse a sí mismo — evita quedarse la
+    // cuenta bloqueada por accidente y sin nadie más con acceso.
+    if (req.params.id === String(req.usuario._id) && activo === false) {
+      return res.status(400).json({ error: 'No puedes desactivar tu propia cuenta' })
+    }
+
+    const usuario = await Usuario.findByIdAndUpdate(
+      req.params.id,
+      { activo },
+      { new: true, runValidators: true }
+    ).select('-password')
+
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' })
+    res.json(usuario)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
 module.exports = router

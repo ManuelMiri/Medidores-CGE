@@ -13,19 +13,13 @@ const app = require('../app')
 const Medidor = require('../models/Medidor')
 const { connect, clearDatabase, closeDatabase } = require('./setupTestDB')
 
+const { crearUsuarioYObtenerToken } = require('./helpers')
+
+// Igual que en importacion.test.js: /registro ahora requiere admin, así
+// que uso el helper compartido que crea el usuario directo en la base.
 async function crearUsuarioYLoguear(rol, unidadesLectura = []) {
-  await request(app).post('/api/auth/registro').send({
-    nombre: `Usuario ${rol}`,
-    email: `${rol}@test.com`,
-    password: '123456',
-    rol,
-    unidadesLectura,
-  })
-  const loginRes = await request(app).post('/api/auth/login').send({
-    email: `${rol}@test.com`,
-    password: '123456',
-  })
-  return loginRes.body.token
+  const { token } = await crearUsuarioYObtenerToken(rol, { unidadesLectura })
+  return token
 }
 
 beforeAll(async () => {
