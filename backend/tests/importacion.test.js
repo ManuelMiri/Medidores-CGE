@@ -50,6 +50,34 @@ const kmlDePrueba = `<?xml version="1.0" encoding="UTF-8"?>
 </kml>`
 
 const { crearUsuarioYObtenerToken } = require('./helpers')
+const XLSX = require('xlsx')
+
+// Mismo criterio que con el KML de prueba: armo un Excel chiquito a mano
+// (2 filas) para no depender de subir el archivo real de SAP a los tests.
+// Las columnas son las mismas que trae el archivo real de la analista.
+function generarExcelDePrueba(filas) {
+  const hoja = XLSX.utils.json_to_sheet(filas)
+  const libro = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(libro, hoja, 'Exportación SAPUI5')
+  return XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' })
+}
+
+const excelDePrueba = generarExcelDePrueba([
+  {
+    ZONA: 'MAULE', ESTABLECIMIENTO: 'CGE: EMPLAZ TALCA', PROCESO: '60',
+    INSTALACION: '333333', 'UNIDAD DE LECTURA': 'E0000002',
+    DIRECCION: 'CALLE TRES 789', 'NUMERO DE POSTE': '6-000003',
+    'NUMERO DE SERIE': '20230000003', MARCA: '',
+    COORDENADAS: '-35.60, -71.12',
+  },
+  {
+    ZONA: 'MAULE', ESTABLECIMIENTO: 'CGE: EMPLAZ TALCA', PROCESO: '60',
+    INSTALACION: '444444', 'UNIDAD DE LECTURA': 'E0000002',
+    DIRECCION: 'CALLE CUATRO 321', 'NUMERO DE POSTE': '6-000004',
+    'NUMERO DE SERIE': '20230000004', MARCA: '',
+    COORDENADAS: '-35.61, -71.13',
+  },
+])
 
 // Antes esto creaba el usuario pegándole a /api/auth/registro. Ahora que
 // esa ruta requiere ser admin, uso el helper compartido que lo crea
@@ -79,7 +107,7 @@ describe('POST /api/importacion/preview', () => {
     const res = await request(app)
       .post('/api/importacion/preview')
       .set('Authorization', `Bearer ${tokenLector}`)
-      .attach('kml', Buffer.from(kmlDePrueba), 'ruta.kml')
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta.kml')
 
     expect(res.status).toBe(403)
   })
@@ -90,7 +118,7 @@ describe('POST /api/importacion/preview', () => {
     const res = await request(app)
       .post('/api/importacion/preview')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .attach('kml', Buffer.from(kmlDePrueba), 'ruta.kml')
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta.kml')
 
     expect(res.status).toBe(200)
     expect(res.body.totalEnKml).toBe(2)
@@ -109,7 +137,7 @@ describe('POST /api/importacion/preview', () => {
     const res = await request(app)
       .post('/api/importacion/preview')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .attach('kml', Buffer.from(kmlDePrueba), 'ruta.kml')
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta.kml')
 
     expect(res.status).toBe(200)
     expect(res.body.totalNuevos).toBe(1)
@@ -135,7 +163,7 @@ describe('POST /api/importacion/confirmar', () => {
     const previewRes = await request(app)
       .post('/api/importacion/preview')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .attach('kml', Buffer.from(kmlDePrueba), 'ruta.kml')
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta.kml')
 
     const res = await request(app)
       .post('/api/importacion/confirmar')
@@ -148,7 +176,7 @@ describe('POST /api/importacion/confirmar', () => {
     const medidorCreado = await Medidor.findOne({ instalacion: '111111' })
     expect(medidorCreado.direccion).toBe('CALLE UNO 123')
     expect(medidorCreado.ubicacion.coordinates).toEqual([-71.1, -35.58])
-    expect(medidorCreado.historial[0].accion).toBe('Creado por importación de KML')
+    expect(medidorCreado.historial[0].accion).toBe('Creado por importación de ruta')
   })
 
   test('no falla ni duplica si un medidor ya fue creado por otra vía', async () => {
@@ -171,5 +199,65 @@ describe('POST /api/importacion/confirmar', () => {
 
     const totalMedidores = await Medidor.countDocuments()
     expect(totalMedidores).toBe(2)
+  })
+})
+
+describe('Importación desde Excel de SAP (.xlsx)', () => {
+  test('el preview detecta los medidores nuevos desde el Excel', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', excelDePrueba, 'ruta.xlsx')
+
+    expect(res.status).toBe(200)
+    expect(res.body.totalEnKml).toBe(2)
+    expect(res.body.totalNuevos).toBe(2)
+    expect(res.body.nuevos.map((m) => m.instalacion).sort()).toEqual(['333333', '444444'])
+  })
+
+  test('invierte correctamente lat/lng al armar las coordenadas', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', excelDePrueba, 'ruta.xlsx')
+
+    const medidor333 = res.body.nuevos.find((m) => m.instalacion === '333333')
+    // El Excel trae "-35.60, -71.12" (lat, lng) — en GeoJSON va [lng, lat].
+    expect(medidor333.ubicacion.coordinates).toEqual([-71.12, -35.60])
+  })
+
+  test('confirmar crea los medidores del Excel igual que con KML', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const previewRes = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', excelDePrueba, 'ruta.xlsx')
+
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ medidores: previewRes.body.nuevos })
+
+    expect(res.status).toBe(201)
+    expect(res.body.totalCreados).toBe(2)
+
+    const medidorCreado = await Medidor.findOne({ instalacion: '333333' })
+    expect(medidorCreado.direccion).toBe('CALLE TRES 789')
+  })
+
+  test('rechaza un archivo con extensión no soportada', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', Buffer.from('cualquier cosa'), 'ruta.pdf')
+
+    expect(res.status).toBe(400)
   })
 })

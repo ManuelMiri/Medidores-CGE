@@ -5,34 +5,17 @@
 // y su ubicación en <Point><coordinates>.
 const { DOMParser } = require('@xmldom/xmldom')
 const togeojson = require('@tmcw/togeojson')
+const { mapearCamposAMedidor } = require('./mapeoMedidor')
 
-// Solo mapeo los campos que ya existen en el modelo Medidor. El KML trae
-// más datos (contratista, fecha planificada, tarifa, tipo de numerador,
-// usuario asignado) que por ahora decidimos no guardar.
 function featureAMedidor(feature) {
   const props = feature.properties || {}
-  const coords = feature.geometry?.coordinates
+  const coords = feature.geometry?.coordinates // [longitud, latitud, elevación?]
 
-  // El proceso viene como texto ("59.0"), lo paso a número si se puede.
-  const procesoTexto = props['PROCESO']
-  const proceso = procesoTexto !== undefined && procesoTexto !== ''
-    ? Number(procesoTexto)
-    : null
-
-  return {
-    instalacion: props.name?.trim(),
-    zona: props['ZONA']?.trim() || null,
-    establecimiento: props['ESTABLECIMIENTO']?.trim() || null,
-    proceso: Number.isNaN(proceso) ? null : proceso,
-    unidadDeLectura: props['UNIDAD DE LECTURA']?.trim() || null,
-    direccion: props['DIRECCION']?.trim() || null,
-    numeroDePoste: props['NUMERO DE POSTE']?.trim() || null,
-    numeroDeSerie: props['NUMERO DE SERIE']?.trim() || null,
-    marca: props['MARCA']?.trim() || null,
-    ubicacion: coords
-      ? { type: 'Point', coordinates: [coords[0], coords[1]] } // [lon, lat], sin la elevación
-      : undefined,
-  }
+  return mapearCamposAMedidor(
+    props.name,
+    props,
+    coords ? [coords[0], coords[1]] : undefined // descarto la elevación
+  )
 }
 
 // Recibe el texto crudo del archivo KML (string XML) y devuelve un array
