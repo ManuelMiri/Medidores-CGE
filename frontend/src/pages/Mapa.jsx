@@ -441,7 +441,13 @@ export default function Mapa() {
 
             <div style={{ padding: '0.75rem' }}>
               <button
-                className={`btn btn-sm w-100 ${modoAgregar ? 'btn-danger' : 'btn-success'}`}
+                className={`btn btn-sm w-100 ${miUbicacionActiva ? 'btn-primary' : 'btn-outline-primary'}`}
+                onClick={() => setMiUbicacionActiva((a) => !a)}>
+                {miUbicacionActiva ? '📍 Ocultar mi ubicación' : '📍 Mostrar mi ubicación'}
+              </button>
+
+              <button
+                className={`btn btn-sm w-100 mt-2 ${modoAgregar ? 'btn-danger' : 'btn-success'}`}
                 onClick={() => setModoAgregar(!modoAgregar)}>
                 {modoAgregar ? '❌ Cancelar' : '📍 Agregar medidor'}
               </button>
@@ -502,24 +508,6 @@ export default function Mapa() {
               <Spinner animation="border" size="sm" /> Cargando...
             </div>
           )}
-
-          {/* Botón flotante para prender/apagar mi ubicación. Lo dejo
-              apagado por defecto para no gastar batería/GPS todo el
-              tiempo si el técnico no lo necesita en ese momento. */}
-          <button
-            onClick={() => setMiUbicacionActiva((a) => !a)}
-            title={miUbicacionActiva ? 'Ocultar mi ubicación' : 'Mostrar mi ubicación'}
-            style={{
-              position: 'absolute', bottom: '1.5rem', right: '1rem', zIndex: 1000,
-              width: '44px', height: '44px', borderRadius: '50%', border: 'none',
-              backgroundColor: miUbicacionActiva ? '#2b6cb0' : 'white',
-              color: miUbicacionActiva ? 'white' : '#2b6cb0',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.3)', fontSize: '1.2rem',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            📍
-          </button>
 
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
             <TileLayer

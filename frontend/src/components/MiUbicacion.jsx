@@ -10,26 +10,58 @@ import { useEffect, useRef, useState } from 'react'
 import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 
-// Ícono de flecha en vez del típico puntito, para que se note hacia dónde
-// mira el técnico. El div rota con CSS según el heading del dispositivo.
+// Azul bien saturado en vez de un azul apagado, para que se note al
+// tiro sobre el mapa (que usa tonos pasteles). Con un halo pulsante
+// alrededor, como el puntito de "tu ubicación" de Google Maps.
+const COLOR_PUNTO = '#1a73e8'
+
+let estilosInyectados = false
+function inyectarEstilosUnaVez() {
+  if (estilosInyectados) return
+  const style = document.createElement('style')
+  style.textContent = `
+    @keyframes pulso-mi-ubicacion {
+      0%   { transform: scale(1);   opacity: 0.55; }
+      70%  { transform: scale(2.4); opacity: 0; }
+      100% { transform: scale(2.4); opacity: 0; }
+    }
+  `
+  document.head.appendChild(style)
+  estilosInyectados = true
+}
+
+// Ícono en divIcon: siempre mide lo mismo en pantalla (28x28 px) sin
+// importar cuánto zoom tenga el mapa — los marcadores en Leaflet nunca
+// escalan con el zoom, a diferencia de un círculo geográfico (que sí
+// crece/achica porque representa metros reales, no píxeles).
 function crearIconoDireccion(rumbo) {
+  inyectarEstilosUnaVez()
   const rotacion = rumbo ?? 0
   return L.divIcon({
     className: 'icono-mi-ubicacion',
     html: `
-      <div style="
-        width: 22px; height: 22px;
-        transform: rotate(${rotacion}deg);
-        transition: transform 0.15s linear;
-      ">
-        <svg width="22" height="22" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="10" fill="#2b6cb0" fill-opacity="0.25"/>
-          <path d="M12 2 L18 20 L12 16 L6 20 Z" fill="#2b6cb0" stroke="#ffffff" stroke-width="1.5"/>
-        </svg>
+      <div style="position: relative; width: 28px; height: 28px;">
+        <div style="
+          position: absolute; inset: 0;
+          border-radius: 50%;
+          background: ${COLOR_PUNTO};
+          animation: pulso-mi-ubicacion 1.8s ease-out infinite;
+        "></div>
+        <div style="
+          position: absolute; inset: 0;
+          transform: rotate(${rotacion}deg);
+          transition: transform 0.15s linear;
+          display: flex; align-items: center; justify-content: center;
+        ">
+          <svg width="20" height="20" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8" fill="${COLOR_PUNTO}" stroke="#ffffff" stroke-width="3"/>
+            <path d="M12 3 L16 12 L12 10 L8 12 Z" fill="#ffffff"/>
+          </svg>
+        </div>
       </div>
     `,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
   })
 }
 
@@ -108,7 +140,7 @@ export default function MiUbicacion({ activo, onError }) {
 
     if (!marcadorRef.current) {
       marcadorRef.current = L.marker(posicion, { icon: crearIconoDireccion(rumbo), zIndexOffset: 1000 }).addTo(map)
-      circuloRef.current = L.circle(posicion, { radius: precision || 0, color: '#2b6cb0', weight: 1, fillOpacity: 0.08 }).addTo(map)
+      circuloRef.current = L.circle(posicion, { radius: precision || 0, color: COLOR_PUNTO, weight: 1, opacity: 0.3, fillOpacity: 0.06 }).addTo(map)
     } else {
       marcadorRef.current.setLatLng(posicion)
       marcadorRef.current.setIcon(crearIconoDireccion(rumbo))

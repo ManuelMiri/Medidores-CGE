@@ -26,6 +26,9 @@ app.use('/api/auth', rutasAuth)
 const rutasImportacion = require('./rutas/importacion')
 app.use('/api/importacion', rutasImportacion)
 
+const rutasGestionRutas = require('./rutas/rutas')
+app.use('/api/rutas', rutasGestionRutas)
+
 // Ruta de prueba
 app.get('/', (req, res) => {
   res.json({ mensaje: 'API de Medidores CGE funcionando', estado: 'ok' })
