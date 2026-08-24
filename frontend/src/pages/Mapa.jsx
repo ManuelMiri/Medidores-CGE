@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
 import CapturaFoto from '../components/CapturaFoto'
 import GestionUsuarios from '../components/GestionUsuarios'
+import MiUbicacion from '../components/MiUbicacion'
 import 'leaflet/dist/leaflet.css'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -155,6 +156,7 @@ export default function Mapa() {
   const [error, setError]               = useState(null)
   const [busqueda, setBusqueda]         = useState('')
   const [filtroUl, setFiltroUl]         = useState('')
+  const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
   const [centroMapa, setCentroMapa]     = useState(null)
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
@@ -501,6 +503,24 @@ export default function Mapa() {
             </div>
           )}
 
+          {/* Botón flotante para prender/apagar mi ubicación. Lo dejo
+              apagado por defecto para no gastar batería/GPS todo el
+              tiempo si el técnico no lo necesita en ese momento. */}
+          <button
+            onClick={() => setMiUbicacionActiva((a) => !a)}
+            title={miUbicacionActiva ? 'Ocultar mi ubicación' : 'Mostrar mi ubicación'}
+            style={{
+              position: 'absolute', bottom: '1.5rem', right: '1rem', zIndex: 1000,
+              width: '44px', height: '44px', borderRadius: '50%', border: 'none',
+              backgroundColor: miUbicacionActiva ? '#2b6cb0' : 'white',
+              color: miUbicacionActiva ? 'white' : '#2b6cb0',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)', fontSize: '1.2rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            📍
+          </button>
+
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               // CARTO en vez del tile.openstreetmap.org gratuito: mismo mapa
@@ -520,7 +540,10 @@ export default function Mapa() {
               onClickMapa={(coords) => abrirFormulario(null, coords)}
               modoAgregar={modoAgregar}
             />
-
+            <MiUbicacion
+              activo={miUbicacionActiva}
+              onError={(msg) => { alert(msg); setMiUbicacionActiva(false) }}
+            />
             {nuevoPunto && (
               <Marker position={nuevoPunto} icon={iconos.nuevo}>
                 <Popup>Nuevo medidor aquí</Popup>
