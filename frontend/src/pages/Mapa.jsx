@@ -46,6 +46,44 @@ const iconos = {
   }),
 }
 
+// Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
+// ese contenedor cambia de tamaño (se muestra/oculta el panel lateral,
+// rotas el celular, o el navegador esconde/muestra la barra de
+// direcciones al hacer scroll — algo que pasa todo el tiempo en Android)
+// Leaflet no se entera solo. Sigue dibujando tiles para el tamaño viejo,
+// y el resto del contenedor queda completamente vacío. Este componente le
+// avisa "recalcula tu tamaño" cada vez que el div del mapa cambia.
+function InvalidarTamano() {
+  const map = useMap()
+
+  useEffect(() => {
+    const contenedor = map.getContainer()
+
+    function recalcular() {
+      map.invalidateSize()
+    }
+
+    // Recalcula apenas monta (a veces el contenedor no tiene su tamaño
+    // final todavía en el primer render) y cada vez que cambia de tamaño.
+    const t = setTimeout(recalcular, 200)
+
+    const observer = new ResizeObserver(recalcular)
+    observer.observe(contenedor)
+
+    // orientationchange cubre el caso de rotar el celular, que a veces
+    // el ResizeObserver detecta con un poco de retraso.
+    window.addEventListener('orientationchange', recalcular)
+
+    return () => {
+      clearTimeout(t)
+      observer.disconnect()
+      window.removeEventListener('orientationchange', recalcular)
+    }
+  }, [map])
+
+  return null
+}
+
 function CentrarMapa({ coords }) {
   const map = useMap()
   useEffect(() => {
@@ -524,6 +562,7 @@ export default function Mapa() {
               updateWhenIdle={true}
             />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
+            <InvalidarTamano />
             <CapturarClick
               onClickMapa={(coords) => abrirFormulario(null, coords)}
               modoAgregar={modoAgregar}
