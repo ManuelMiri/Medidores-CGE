@@ -299,6 +299,37 @@ export default function Mapa() {
     cargarMedidores()
   }
 
+  async function handleExportarRuta(ul) {
+    try {
+      // responseType 'blob' porque es un archivo binario (.xlsx), no JSON.
+      // No puedo simplemente abrir la URL en una pestaña nueva porque el
+      // endpoint requiere el token de auth en el header.
+      const res = await api.get(`/rutas/${ul}/exportar`, { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${ul}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Error al exportar la ruta')
+    }
+  }
+
+  async function handleEliminarRuta(ul) {
+    if (!confirm(`¿Eliminar TODOS los medidores de la ruta ${ul}? Esta acción no se puede deshacer.`)) return
+    try {
+      const { data } = await api.delete(`/rutas/${ul}`)
+      alert(`Se eliminaron ${data.totalEliminados} medidores de la ruta ${ul}`)
+      await cargarMedidores()
+      await cargarUls()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error al eliminar la ruta')
+    }
+  }
+
   if (cargando && uls.length === 0) return (
     <div className="d-flex justify-content-center align-items-center" style={{ height: '100vh' }}>
       <Spinner animation="border" variant="primary" />
@@ -361,12 +392,29 @@ export default function Mapa() {
                 {uls
                   .filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
                   .map(ul => (
-                    <div key={ul} className="form-check mb-1">
-                      <input className="form-check-input" type="checkbox"
-                        id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
-                        onChange={() => toggleUl(ul)} />
-                      <label className="form-check-label" htmlFor={`ul-${ul}`}
-                        style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+                    <div key={ul} className="d-flex align-items-center justify-content-between mb-1">
+                      <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
+                        <input className="form-check-input" type="checkbox"
+                          id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
+                          onChange={() => toggleUl(ul)} />
+                        <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
+                          style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+                      </div>
+                      {/* Exportar la deja ver admin y supervisor; eliminar
+                          la ruta completa es una acción destructiva, solo
+                          para admin. */}
+                      {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
+                        <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
+                          onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+                          📥
+                        </button>
+                      )}
+                      {usuario.rol === 'admin' && (
+                        <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
+                          onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   ))
                 }

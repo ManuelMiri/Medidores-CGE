@@ -13,6 +13,18 @@ export default defineConfig({
       // haya red — no reemplaza tener señal, pero ayuda con la lentitud
       // que veíamos en zonas rurales.
       workbox: {
+        // Sin esto, un service worker nuevo se queda "esperando" en
+        // segundo plano hasta que cierres todas las pestañas — y mientras
+        // tanto la app sigue sirviendo la versión vieja desde el caché.
+        // skipWaiting + clientsClaim fuerza a que la versión nueva tome el
+        // control apenas está lista, sin esperar nada.
+        skipWaiting: true,
+        clientsClaim: true,
+        // Las llamadas a la API (ULs, medidores, login, etc.) NUNCA deben
+        // servirse desde caché — siempre red primero. Antes no estaban
+        // excluidas explícitamente, así que en algunos navegadores el
+        // service worker las interceptaba igual y devolvía respuestas
+        // viejas o rotas.
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/[abcd]\.basemaps\.cartocdn\.com\/.*/,
@@ -22,6 +34,10 @@ export default defineConfig({
               expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
               cacheableResponse: { statuses: [0, 200] },
             },
+          },
+          {
+            urlPattern: /\/api\/.*/,
+            handler: 'NetworkOnly',
           },
         ],
       },
