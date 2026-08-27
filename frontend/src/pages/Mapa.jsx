@@ -250,9 +250,32 @@ export default function Mapa() {
 
   async function handleBuscar(e) {
     e.preventDefault()
-    if (!busqueda.trim()) return
+    const texto = busqueda.trim()
+    if (!texto) return
+
+    // Si es puro número (los últimos 4-5 dígitos del medidor), busco
+    // primero dentro de lo que ya está cargado (o sea, dentro de las ULs
+    // que tienes marcadas) comparando el FINAL del número de instalación
+    // — así "1234" encuentra el medidor 103382314 sin ambigüedad con
+    // otros números que solo lo contengan en el medio.
+    if (/^\d+$/.test(texto) && ulsActivas.length > 0) {
+      const candidatos = medidores.filter((m) => m.instalacion?.endsWith(texto))
+
+      if (candidatos.length === 1) {
+        const [lng, lat] = candidatos[0].ubicacion?.coordinates || []
+        if (lat && lng) setCentroMapa([lat, lng])
+        return
+      }
+      if (candidatos.length > 1) {
+        alert(`Hay ${candidatos.length} medidores que terminan en "${texto}" en las ULs marcadas. Escribe más dígitos para precisar.`)
+        return
+      }
+      // Si no hay ninguno en las ULs activas, sigo abajo con la búsqueda
+      // general por si el medidor está en otra UL que no tienes marcada.
+    }
+
     try {
-      const { data } = await api.get(`/medidores/buscar?q=${busqueda}`)
+      const { data } = await api.get(`/medidores/buscar?q=${texto}`)
       if (data.medidores.length > 0) {
         const m = data.medidores[0]
         if (m.ubicacion?.coordinates) {
@@ -514,7 +537,7 @@ export default function Mapa() {
             <form onSubmit={handleBuscar}>
               <InputGroup size="sm">
                 <Form.Control
-                  placeholder="Buscar instalación, dirección o poste..."
+                  placeholder="Últimos dígitos del medidor, dirección o poste..."
                   value={busqueda}
                   onChange={e => setBusqueda(e.target.value)}
                 />
