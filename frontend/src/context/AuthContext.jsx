@@ -20,6 +20,26 @@ export function AuthProvider({ children }) {
     setCargando(false)
   }, [])
 
+  // Si el backend responde 401 (token vencido, invalidado o de otro deploy),
+  // cierro la sesión y vuelvo al login. Antes la app se quedaba "logueada"
+  // con un token que ya no servía y mostraba solo "Error al cargar las
+  // unidades de lectura", sin forma de salir.
+  useEffect(() => {
+    const id = api.interceptors.response.use(
+      (res) => res,
+      (err) => {
+        const esLogin = err.config?.url?.includes('/auth/login')
+        if (err.response?.status === 401 && !esLogin) {
+          localStorage.removeItem('token')
+          localStorage.removeItem('usuario')
+          setUsuario(null)
+        }
+        return Promise.reject(err)
+      }
+    )
+    return () => api.interceptors.response.eject(id)
+  }, [])
+
   // Login: llama al backend, guarda token y usuario
   async function login(email, password) {
     const { data } = await api.post('/auth/login', { email, password })
