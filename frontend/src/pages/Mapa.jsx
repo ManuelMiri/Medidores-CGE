@@ -1,5 +1,5 @@
 // src/pages/Mapa.jsx
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
@@ -65,6 +65,103 @@ function CerrarPopup() {
     <button type="button" className="btn-close btn-sm" aria-label="Cerrar"
       style={{ fontSize: '0.6rem' }}
       onClick={() => map.closePopup()} />
+  )
+}
+
+// Agrupa medidores que están a menos de `metros` entre sí. Para distancias
+// tan chicas basta con pasar grados a metros a mano (no hace falta la
+// fórmula de haversine). Comparo contra el primer medidor de cada grupo.
+function agruparCercanos(lista, metros) {
+  const grupos = []
+  for (const m of lista) {
+    const c = m.ubicacion?.coordinates
+    if (!c) continue
+    const [lng, lat] = c
+    const grupo = grupos.find(g => {
+      const [glng, glat] = g[0].ubicacion.coordinates
+      const dx = (lng - glng) * 111320 * Math.cos(lat * Math.PI / 180)
+      const dy = (lat - glat) * 110540
+      return dx * dx + dy * dy <= metros * metros
+    })
+    if (grupo) grupo.push(m)
+    else grupos.push([m])
+  }
+  return grupos
+}
+
+// Pin con un circulito rojo y el número de medidores que hay en ese punto.
+// Uso la misma imagen del pin normal (o dorado) y le pego el contador encima.
+const cacheIconosContador = {}
+function iconoConContador(iconoBase, cantidad) {
+  const url = iconoBase.options.iconUrl
+  const clave = url + cantidad
+  if (!cacheIconosContador[clave]) {
+    cacheIconosContador[clave] = L.divIcon({
+      className: '',
+      html: `<div class="pin-grupo"><img src="${url}" alt="" /><span class="pin-grupo-contador">${cantidad}</span></div>`,
+      iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+    })
+  }
+  return cacheIconosContador[clave]
+}
+
+// Lo que va dentro del popup. Si en el punto hay un solo medidor, muestra
+// sus datos directo. Si hay varios, primero la lista para elegir cuál, y
+// al elegir uno sus datos con un botón para volver a la lista.
+function ContenidoPopup(props) {
+  // Ojo con esto: React atiende el click ANTES que Leaflet, y como al tocar
+  // un botón de la lista cambio lo que se muestra, cuando el click le llega
+  // a Leaflet el botón ya no existe. Leaflet cree entonces que tocaste el
+  // mapa y cierra el popup. Cortando el click aquí no le llega nunca.
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <ContenidoPopupInterno {...props} />
+    </div>
+  )
+}
+
+function ContenidoPopupInterno({ grupo, elegido, onElegir, esMobil, renderDetalle }) {
+  const [verLista, setVerLista] = useState(!elegido)
+
+  if (grupo.length === 1) return renderDetalle(grupo[0])
+
+  if (elegido && !verLista) {
+    return (
+      <div>
+        <button type="button" className="btn btn-link btn-sm p-0 mb-1"
+          style={{ fontSize: '0.75rem' }} onClick={() => setVerLista(true)}>
+          ← Ver los {grupo.length} de este punto
+        </button>
+        {renderDetalle(elegido)}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-1">
+        <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {grupo.length} medidores aquí</h6>
+        {!esMobil && <CerrarPopup />}
+      </div>
+      <hr style={{ margin: '0.3rem 0' }} />
+      <div className="d-grid gap-1">
+        {grupo.map(m => (
+          <button key={m._id} type="button"
+            className={`btn btn-sm text-start ${elegido?._id === m._id ? 'btn-warning' : 'btn-outline-secondary'}`}
+            style={{ fontSize: '0.8rem' }}
+            onClick={() => {
+              // si ya era el elegido, solo muestro sus datos; si no, lo
+              // selecciono (el pin se vuelve a montar y abre con sus datos)
+              if (elegido?._id === m._id) setVerLista(false)
+              else onElegir(m)
+            }}>
+            <strong>{m.instalacion}</strong>
+            <span className="text-muted"> · {m.estado}</span>
+            {m.numeroDePoste && <span className="text-muted"> · poste {m.numeroDePoste}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -247,6 +344,11 @@ export default function Mapa() {
 
   // Detectar si es móvil
   const esMobil = window.innerWidth < 768
+
+  // Junto los medidores que están prácticamente en el mismo punto (mismo
+  // poste o misma casa) en un solo pin con contador, porque si no quedan
+  // uno encima de otro y no hay forma de tocar los de abajo
+  const grupos = useMemo(() => agruparCercanos(medidores, 5), [medidores])
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -708,25 +810,32 @@ export default function Mapa() {
               </Marker>
             )}
 
-            {medidores.map(m => {
-              if (!m.ubicacion?.coordinates) return null
-              const [lng, lat] = m.ubicacion.coordinates
-              const seleccionado = m._id === seleccionadoId
-              const icono = seleccionado ? iconoSeleccionado : (iconos[m.estado] || iconos.pendiente)
+            {grupos.map(grupo => {
+              const [lng, lat] = grupo[0].ubicacion.coordinates
+              const elegido = grupo.find(m => m._id === seleccionadoId)
+              const varios = grupo.length > 1
+              // icono: dorado si el seleccionado está aquí; si no, el color
+              // por estado del primero. Si son varios, va con el contador.
+              const base = elegido ? iconoSeleccionado : (iconos[grupo[0].estado] || iconos.pendiente)
+              const icono = varios ? iconoConContador(base, grupo.length) : base
+              const idGrupo = grupo.map(m => m._id).join('-')
               return (
                 <Marker
                   // cambio la key al seleccionarlo para que el marcador se
-                  // vuelva a montar con el icono dorado y abra su popup solo
-                  // (evento "add"); así funciona igual si lo tocaste o si
-                  // lo encontraste con el buscador
-                  key={seleccionado ? m._id + '-sel' : m._id}
+                  // vuelva a montar en dorado y abra su popup solo (evento
+                  // "add"); así funciona igual si lo tocaste o lo buscaste
+                  // (lleva el id del elegido para que también se vuelva a montar al
+                  // elegir otro medidor del mismo grupo)
+                  key={elegido ? idGrupo + '-sel-' + elegido._id : idGrupo}
                   position={[lat, lng]}
                   icon={icono}
                   // encima de los demás pines si están pegados
-                  zIndexOffset={seleccionado ? 1000 : 0}
-                  eventHandlers={seleccionado
+                  zIndexOffset={elegido ? 1000 : 0}
+                  eventHandlers={elegido
                     ? { add: (e) => e.target.openPopup() }
-                    : { click: () => setSeleccionadoId(m._id) }}
+                    // si es uno solo lo selecciono al tocarlo; si son varios
+                    // primero se abre la lista y se selecciona al elegir
+                    : (varios ? undefined : { click: () => setSeleccionadoId(grupo[0]._id) })}
                 >
                   {/* En escritorio el popup sale a la DERECHA del pin (clase
                       popup-derecha en index.css) para no tapar los pines de
@@ -740,40 +849,48 @@ export default function Mapa() {
                     autoPanPaddingTopLeft={[20, 20]}
                     autoPanPaddingBottomRight={esMobil ? [20, 20] : [170, 230]}
                   >
-                    <div>
-                      <div className="d-flex justify-content-between align-items-center mb-1">
-                        <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {m.instalacion}</h6>
-                        {!esMobil && <CerrarPopup />}
-                      </div>
-                      <hr style={{ margin: '0.3rem 0' }} />
-                      <p style={{ margin: 0, fontSize: '0.8rem' }}>
-                        <strong>Estado:</strong> {m.estado}<br />
-                        <strong>Dirección:</strong> {m.direccion || '—'}<br />
-                        <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
-                        <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
-                        {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                          <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
-                        )}
-                        {m.observaciones && <><strong>Obs:</strong> {m.observaciones}<br /></>}
-                      </p>
-                      <div className="d-flex gap-1 mt-2">
-                        <button className="btn btn-primary btn-sm"
-                          onClick={() => abrirFormulario(m)}>✏️ Editar</button>
-                        {usuario.rol === 'admin' && (
-                          <button className="btn btn-danger btn-sm"
-                            onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
-                        )}
-                      </div>
+                    <ContenidoPopup
+                      grupo={grupo}
+                      elegido={elegido}
+                      onElegir={(m) => setSeleccionadoId(m._id)}
+                      esMobil={esMobil}
+                      renderDetalle={(m) => (
+                        <div>
+                          <div className="d-flex justify-content-between align-items-center mb-1">
+                            <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {m.instalacion}</h6>
+                            {!esMobil && <CerrarPopup />}
+                          </div>
+                          <hr style={{ margin: '0.3rem 0' }} />
+                          <p style={{ margin: 0, fontSize: '0.8rem' }}>
+                            <strong>Estado:</strong> {m.estado}<br />
+                            <strong>Dirección:</strong> {m.direccion || '—'}<br />
+                            <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
+                            <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
+                            {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
+                              <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
+                            )}
+                            {m.observaciones && <><strong>Obs:</strong> {m.observaciones}<br /></>}
+                          </p>
+                          <div className="d-flex gap-1 mt-2">
+                            <button className="btn btn-primary btn-sm"
+                              onClick={() => abrirFormulario(m)}>✏️ Editar</button>
+                            {usuario.rol === 'admin' && (
+                              <button className="btn btn-danger btn-sm"
+                                onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
+                            )}
+                          </div>
 
-                      {/* Foto directo desde el popup, sin tener que entrar
-                          a editar — así el técnico saca la foto ahí mismo,
-                          parado frente al medidor. */}
-                      <CapturaFoto
-                        instalacion={m.instalacion}
-                        fotosExistentes={m.fotos}
-                        onFotoSubida={() => cargarMedidores()}
-                      />
-                    </div>
+                          {/* Foto directo desde el popup, sin tener que entrar
+                              a editar — así el técnico saca la foto ahí mismo,
+                              parado frente al medidor. */}
+                          <CapturaFoto
+                            instalacion={m.instalacion}
+                            fotosExistentes={m.fotos}
+                            onFotoSubida={() => cargarMedidores()}
+                          />
+                        </div>
+                      )}
+                    />
                   </Popup>
                 </Marker>
               )
