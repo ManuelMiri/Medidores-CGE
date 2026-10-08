@@ -1,6 +1,6 @@
 // src/pages/Mapa.jsx
 import { useEffect, useState } from 'react'
-import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, LayersControl, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
 import api from '../services/api'
@@ -183,23 +183,6 @@ function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, gu
       )}
     </>
   )
-}
-
-// Guardo la última capa elegida (calles/satélite) para que al volver a
-// abrir la app no haya que cambiarla de nuevo cada vez
-const CLAVE_CAPA = 'capaMapa'
-function leerCapaGuardada() {
-  try { return localStorage.getItem(CLAVE_CAPA) || 'calles' } catch { return 'calles' }
-}
-const capaInicial = leerCapaGuardada()
-
-function RecordarCapa() {
-  useMapEvents({
-    baselayerchange: (e) => {
-      try { localStorage.setItem(CLAVE_CAPA, e.name === 'Satélite' ? 'satelite' : 'calles') } catch { /* sin storage, da igual */ }
-    },
-  })
-  return null
 }
 
 export default function Mapa() {
@@ -588,78 +571,62 @@ export default function Mapa() {
           )}
 
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
-            {/* Selector de capas (arriba a la derecha): calles o satélite.
-                La satelital es de Esri, sirve para ver las casas y ubicar
-                el medidor mejor en terreno. No pide API key. */}
-            <LayersControl position="topright">
-              <LayersControl.BaseLayer name="Calles" checked={capaInicial !== 'satelite'}>
+            {/* Botón de capas para cambiar entre mapa normal y satélite, igual
+                que en Google Maps. Lo dejé abajo a la derecha porque arriba lo
+                tapa la barra de búsqueda en el celular. */}
+            <LayersControl position="bottomright">
+              <LayersControl.BaseLayer checked name="🗺️ Mapa">
                 <TileLayer
-                  // Antes usaba CARTO, pero ahora sus tiles piden API key y el mapa
-                  // salía todo con "API KEY REQUIRED". Me cambié a los tiles de
-                  // OpenStreetMap directo, que no piden key (para el uso que le
-                  // damos, un equipo chico, está dentro de su política).
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  // todas las capas con techo 20, así al cambiar entre
-                  // Calles y Satélite no te cambia el zoom
-                  maxNativeZoom={19}
+                  // CARTO en vez del tile.openstreetmap.org gratuito: mismo mapa
+                  // base, pero servido desde un CDN pensado para producción.
+                  attribution='&copy; <a href="https://www.openstreetmap.org">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                  url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                  subdomains="abcd"
                   maxZoom={20}
                   // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
                   // pixel que arrastras satura la conexión y todo se siente
                   // más lento. Con esto, solo pide tiles nuevos cuando sueltas
                   // el mapa (terminaste de moverlo), no mientras lo arrastras.
                   updateWhenIdle={true}
+                  // Pido los tiles con CORS para que el service worker los
+                  // guarde como respuesta normal (ver vite.config.js).
+                  crossOrigin="anonymous"
                 />
               </LayersControl.BaseLayer>
 
-              <LayersControl.BaseLayer name="Satélite" checked={capaInicial === 'satelite'}>
-                {/* La foto sola no tiene nombres de calles, así que encima le
-                    pongo las capas de referencia de Esri (calles y lugares)
-                    para no perderse en sectores rurales */}
-                <LayerGroup>
-                  {/* Probé con medidores reales de las 6 ULs: Esri tiene foto
-                      real hasta z18 en toda la zona, y en z19 devuelve el
-                      cuadro gris ("Map data not yet available"). Por eso pido
-                      fotos hasta z18 y de ahí en adelante Leaflet agranda la
-                      de z18 (el pin igual queda en la coordenada exacta del
-                      click, solo se ve menos nítido).
-
-                      Por si algún sector raro no tiene ni z18, dejo dos capas:
-                      1) Abajo, la foto hasta z15, que existe en todo Chile.
-                      2) Arriba, la foto buena. Con blankTile=false, donde no
-                         hay foto Esri debería mandar error en vez del gris,
-                         y ahí se ve la de abajo. */}
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={15}
-                    maxZoom={20}
-                    updateWhenIdle={true}
-                  />
-                  <TileLayer
-                    attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
-                    maxNativeZoom={18}
-                    maxZoom={20}
-                    updateWhenIdle={true}
-                  />
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
-                    // las capas de nombres sí llegan hasta z19
-                    maxNativeZoom={19}
-                    maxZoom={20}
-                    updateWhenIdle={true}
-                  />
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                    // las capas de nombres sí llegan hasta z19
-                    maxNativeZoom={19}
-                    maxZoom={20}
-                    updateWhenIdle={true}
-                  />
-                </LayerGroup>
+              <LayersControl.BaseLayer name="🛰️ Satélite">
+                <TileLayer
+                  // Fotos satelitales de Esri: se ven las casas, techos y patios,
+                  // que sirve harto para ubicar el medidor en terreno. No pide
+                  // API key. Esri tiene fotos hasta zoom 19, así que con
+                  // maxNativeZoom le digo que en zoom 20 estire las del 19 en vez
+                  // de mostrar cuadros grises.
+                  attribution='Imágenes &copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics'
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                  maxNativeZoom={19}
+                  maxZoom={20}
+                  updateWhenIdle={true}
+                  // Pido los tiles con CORS para que el service worker los
+                  // guarde como respuesta normal (ver vite.config.js).
+                  crossOrigin="anonymous"
+                />
               </LayersControl.BaseLayer>
+
+              {/* Nombres de calles y localidades encima del satélite (como el
+                  modo "híbrido" de Google). Es opcional, se marca en el mismo
+                  menú de capas. */}
+              <LayersControl.Overlay name="Nombres de calles">
+                <TileLayer
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                  maxNativeZoom={19}
+                  maxZoom={20}
+                  updateWhenIdle={true}
+                  // Pido los tiles con CORS para que el service worker los
+                  // guarde como respuesta normal (ver vite.config.js).
+                  crossOrigin="anonymous"
+                />
+              </LayersControl.Overlay>
             </LayersControl>
-            <RecordarCapa />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <InvalidarTamano />
             <CapturarClick

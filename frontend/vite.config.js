@@ -20,6 +20,10 @@ export default defineConfig({
         // control apenas está lista, sin esperar nada.
         skipWaiting: true,
         clientsClaim: true,
+        // Si alguien abre una URL de la API directo en el navegador (ej. una
+        // foto), no quiero que el service worker le responda con el index.html
+        // de la app. Con esto esas rutas siempre van a la red.
+        navigateFallbackDenylist: [/^\/api/],
         // Las llamadas a la API (ULs, medidores, login, etc.) NUNCA deben
         // servirse desde caché — siempre red primero. Antes no estaban
         // excluidas explícitamente, así que en algunos navegadores el
@@ -27,23 +31,40 @@ export default defineConfig({
         // viejas o rotas.
         runtimeCaching: [
           {
-            // ojo: cambié el nombre del caché para no seguir sirviendo los tiles
-            // viejos de CARTO que quedaron guardados con el "API KEY REQUIRED"
-            urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/,
+            urlPattern: /^https:\/\/[abcd]\.basemaps\.cartocdn\.com\/.*/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tiles-osm',
+              cacheName: 'tiles-mapa',
               expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
-              cacheableResponse: { statuses: [0, 200] },
+              // Solo 200: los tiles ahora se piden con crossOrigin (ver
+              // Mapa.jsx), así que llegan como respuesta normal y no "opaca".
+              // Las opacas Chrome las cuenta como ~7 MB cada una en la cuota,
+              // y con 2000 tiles eso reventaba el almacenamiento del celular.
+              cacheableResponse: { statuses: [200] },
             },
           },
           {
-            // tiles satelitales de Esri, mismo trato que los de OSM
-            urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/,
+            // Lo mismo para el satélite de Esri (fotos + nombres de calles).
+            // Le puse menos entradas que al mapa normal porque las fotos pesan
+            // bastante más y no quiero llenarle el celular a nadie.
+            urlPattern: /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/.*/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'tiles-satelite',
-              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
+              expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            // Los íconos de los marcadores (verde, rojo, azul, etc.) vienen de
+            // unpkg y GitHub. Sin esto, sin señal el mapa cargaba pero los
+            // medidores aparecían sin ícono. Son pocos archivos, así que acá
+            // sí da lo mismo que sean respuestas opacas.
+            urlPattern: /^https:\/\/(unpkg\.com\/leaflet@|raw\.githubusercontent\.com\/pointhi\/leaflet-color-markers\/).*/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'iconos-marcadores',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
@@ -61,6 +82,7 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
+        lang: 'es',
         icons: [
           { src: '/pwa-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa-512.png', sizes: '512x512', type: 'image/png' },
