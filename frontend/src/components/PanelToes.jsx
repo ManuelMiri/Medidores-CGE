@@ -230,7 +230,7 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
           )}
 
           <p style={{ fontSize: '0.7rem', color: '#718096', margin: '0.4rem 0 0' }}>
-            {ultimaRevision && `Última revisión ${haceCuanto(ultimaRevision)}`}
+            {ultimaRevision && `Última novedad ${haceCuanto(ultimaRevision)}`}
             {invalidos > 0 && (
               <span style={{ color: '#c53030' }}>
                 {' · '}{invalidos} bloque(s) ilegible(s)

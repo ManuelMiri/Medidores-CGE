@@ -218,7 +218,12 @@ export function useToes(ulsActivas = []) {
     enVuelo.current = true
     try {
       const r = await leerNovedades(carpeta, datos.current.archivos, procesarTrozo)
-      setUltimaRevision(new Date())
+      // Solo se marca la hora si hubo algo nuevo. Si se marcara en cada
+      // vuelta, este hook re-renderizaría el mapa completo cada 5 s —- y con
+      // ~300 pines eso le cuesta a Leaflet un setLatLng y un off/on de
+      // listeners por marcador, justo mientras el lector arrastra el mapa.
+      // Que está vigilando ya lo dice la franja verde del panel.
+      if (r.eventos > 0) setUltimaRevision(new Date())
       setErrorNativo(null)
       return r.eventos
     } catch (err) {
