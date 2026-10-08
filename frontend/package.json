@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test src/utils/toesParser.test.js",
+    "test": "node --test src/utils/*.test.js",
     "build:native": "vite build --mode native",
     "android:sync": "npm run build:native && cap sync android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",

@@ -30,43 +30,74 @@ export function iconoColor(hex) {
 }
 
 /**
- * @param medidor   documento de la colección
- * @param indice    { porInstalacion, porMedidor } del hook
- * @param config    clavesToes.json
- * @param iconos    los L.Icon por estado de mapeo que ya tiene el mapa
- * @param verTomados si está activo, los tomados se atenúan en vez de ocultarse
+ * Estado que TOES tiene para un punto del mapa, o null si no lo tomó.
+ * Cruce O(1) por instalación. El respaldo por número de medidor solo se usa
+ * si el punto no trae instalación, nunca al revés: la instalación es el
+ * identificador fuerte.
  */
-export function vistaDeMarcador(medidor, indice, config, iconos, verTomados) {
-  // Cruce O(1) por instalación. El respaldo por número de medidor solo se
-  // usa si el punto no trae instalación, nunca al revés: la instalación es
-  // el identificador fuerte.
-  const toes =
+export function estadoToesDe(medidor, indice) {
+  return (
     indice.porInstalacion.get(medidor.instalacion) ||
     (!medidor.instalacion && medidor.numeroDeSerie
       ? indice.porMedidor.get(medidor.numeroDeSerie)
-      : undefined)
+      : undefined) ||
+    null
+  )
+}
 
-  if (!toes) {
-    return {
-      oculto: false,
-      icono: iconos[medidor.estado] || iconos.pendiente,
-      opacidad: 1,
-      toes: null,
+/**
+ * Decide cómo se ve un pin del mapa. El mapa agrupa los medidores que están a
+ * menos de 5 m en un solo pin con contador, así que la decisión es por grupo y
+ * no por medidor: lo que se saca son los servicios que el lector ya tomó, y el
+ * pin desaparece solo cuando no queda ninguno por visitar.
+ *
+ * @param grupo         medidores que comparten el punto (todos con ubicación)
+ * @param indice        { porInstalacion, porMedidor } del hook
+ * @param config        clavesToes.json
+ * @param iconos        los L.Icon por estado de mapeo que ya tiene el mapa
+ * @param verTomados    si está activo, los tomados se muestran atenuados
+ * @param seleccionadoId medidor elegido a propósito (tocado o buscado)
+ */
+export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccionadoId) {
+  const toesPorId = new Map()
+  const visibles = []
+
+  for (const m of grupo) {
+    const toes = estadoToesDe(m, indice)
+    if (toes) toesPorId.set(m._id, toes)
+    // Un servicio ya tomado se oculta, salvo que "Ver tomados" esté activo o
+    // que el usuario lo haya elegido a propósito. Esa segunda excepción
+    // importa: si no estuviera, buscar una instalación que TOES ya tomó no
+    // mostraría nada y el buscador pareceria roto.
+    if (!toes || verTomados || m._id === seleccionadoId) visibles.push(m)
+  }
+
+  if (visibles.length === 0) return { oculto: true, visibles, toesPorId }
+
+  // Atenuar solo si TODO lo que queda en el pin ya está tomado. Un grupo
+  // mezclado se ve normal, porque todavía hay algo que ir a buscar ahí.
+  const todoTomado = visibles.every((m) => toesPorId.has(m._id))
+
+  // El color de la clave se muestra solo cuando hay un único medidor visible:
+  // con varios no hay un color que represente al grupo, y además el pin con
+  // contador necesita un icono con imagen (iconUrl), que el divIcon de color
+  // no tiene.
+  let icono = iconos[visibles[0].estado] || iconos.pendiente
+  if (visibles.length === 1) {
+    const clave = toesPorId.get(visibles[0]._id)?.clave
+    if (clave) {
+      // Una clave que no esté en la configuración no rompe nada: sale con el
+      // color neutro y el popup la muestra como "clave NN".
+      icono = iconoColor(config.claves[clave]?.color ?? config.colorClaveDesconocida)
     }
   }
 
-  if (!verTomados) return { oculto: true, toes }
-
-  // Atenuado, y con el color de la clave si hubo una. Una clave que no esté
-  // en la configuración no rompe nada: sale como "Clave NN" en color neutro.
-  const def = toes.clave ? config.claves[toes.clave] : null
-  const color = toes.clave ? (def?.color ?? config.colorClaveDesconocida) : null
-
   return {
     oculto: false,
-    icono: color ? iconoColor(color) : iconos[medidor.estado] || iconos.pendiente,
-    opacidad: 0.35,
-    toes,
+    visibles,
+    toesPorId,
+    icono,
+    opacidad: todoTomado ? 0.35 : 1,
   }
 }
 

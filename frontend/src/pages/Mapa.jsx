@@ -1,5 +1,5 @@
 // src/pages/Mapa.jsx
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
@@ -11,7 +11,7 @@ import GestionUsuarios from '../components/GestionUsuarios'
 import MiUbicacion from '../components/MiUbicacion'
 import PanelToes from '../components/PanelToes'
 import { useToes } from '../hooks/useToes'
-import { vistaDeMarcador, textoToes } from '../utils/vistaMarcador'
+import { vistaDeGrupo, textoToes } from '../utils/vistaMarcador'
 import 'leaflet/dist/leaflet.css'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -47,6 +47,130 @@ const iconos = {
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
     iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
   }),
+}
+
+// Icono del medidor seleccionado (el que tocaste o encontraste con el
+// buscador): mismo tamaño que los demás, solo cambia a dorado para que se
+// note cuál es sin tapar los pines de al lado
+const iconoSeleccionado = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-gold.png',
+  iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+})
+
+// Botón ✕ propio para el popup (el de Leaflet lo escondo en escritorio
+// porque ahí corro el popup a la derecha del pin y el ✕ original quedaba
+// flotando en otro lado)
+function CerrarPopup() {
+  const map = useMap()
+  return (
+    <button type="button" className="btn-close btn-sm" aria-label="Cerrar"
+      style={{ fontSize: '0.6rem' }}
+      onClick={() => map.closePopup()} />
+  )
+}
+
+// Agrupa medidores que están a menos de `metros` entre sí. Para distancias
+// tan chicas basta con pasar grados a metros a mano (no hace falta la
+// fórmula de haversine). Comparo contra el primer medidor de cada grupo.
+function agruparCercanos(lista, metros) {
+  const grupos = []
+  for (const m of lista) {
+    const c = m.ubicacion?.coordinates
+    if (!c) continue
+    const [lng, lat] = c
+    const grupo = grupos.find(g => {
+      const [glng, glat] = g[0].ubicacion.coordinates
+      const dx = (lng - glng) * 111320 * Math.cos(lat * Math.PI / 180)
+      const dy = (lat - glat) * 110540
+      return dx * dx + dy * dy <= metros * metros
+    })
+    if (grupo) grupo.push(m)
+    else grupos.push([m])
+  }
+  return grupos
+}
+
+// Pin con un circulito rojo y el número de medidores que hay en ese punto.
+// Uso la misma imagen del pin normal (o dorado) y le pego el contador encima.
+const cacheIconosContador = {}
+function iconoConContador(iconoBase, cantidad) {
+  const url = iconoBase.options.iconUrl
+  // Los pines de color de la capa TOES son divIcon con SVG embebido y no
+  // tienen iconUrl, así que no se les puede pegar el contador encima: sin
+  // esta guarda saldría un <img> roto. Hoy no llegan acá (el color se usa
+  // solo cuando hay un medidor visible), pero es un pin menos que romper.
+  if (!url) return iconoBase
+  const clave = url + cantidad
+  if (!cacheIconosContador[clave]) {
+    cacheIconosContador[clave] = L.divIcon({
+      className: '',
+      html: `<div class="pin-grupo"><img src="${url}" alt="" /><span class="pin-grupo-contador">${cantidad}</span></div>`,
+      iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+    })
+  }
+  return cacheIconosContador[clave]
+}
+
+// Lo que va dentro del popup. Si en el punto hay un solo medidor, muestra
+// sus datos directo. Si hay varios, primero la lista para elegir cuál, y
+// al elegir uno sus datos con un botón para volver a la lista.
+function ContenidoPopup(props) {
+  // Ojo con esto: React atiende el click ANTES que Leaflet, y como al tocar
+  // un botón de la lista cambio lo que se muestra, cuando el click le llega
+  // a Leaflet el botón ya no existe. Leaflet cree entonces que tocaste el
+  // mapa y cierra el popup. Cortando el click aquí no le llega nunca.
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <ContenidoPopupInterno {...props} />
+    </div>
+  )
+}
+
+function ContenidoPopupInterno({ grupo, elegido, onElegir, esMobil, renderDetalle }) {
+  const [verLista, setVerLista] = useState(!elegido)
+
+  if (grupo.length === 1) return renderDetalle(grupo[0])
+
+  if (elegido && !verLista) {
+    return (
+      <div>
+        <button type="button" className="btn btn-link btn-sm p-0 mb-1"
+          style={{ fontSize: '0.75rem' }} onClick={() => setVerLista(true)}>
+          ← Ver los {grupo.length} de este punto
+        </button>
+        {renderDetalle(elegido)}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-1">
+        <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {grupo.length} medidores aquí</h6>
+        {!esMobil && <CerrarPopup />}
+      </div>
+      <hr style={{ margin: '0.3rem 0' }} />
+      <div className="d-grid gap-1">
+        {grupo.map(m => (
+          <button key={m._id} type="button"
+            className={`btn btn-sm text-start ${elegido?._id === m._id ? 'btn-warning' : 'btn-outline-secondary'}`}
+            style={{ fontSize: '0.8rem' }}
+            onClick={() => {
+              // si ya era el elegido, solo muestro sus datos; si no, lo
+              // selecciono (el pin se vuelve a montar y abre con sus datos)
+              if (elegido?._id === m._id) setVerLista(false)
+              else onElegir(m)
+            }}>
+            <strong>{m.instalacion}</strong>
+            <span className="text-muted"> · {m.estado}</span>
+            {m.numeroDePoste && <span className="text-muted"> · poste {m.numeroDePoste}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
@@ -216,6 +340,18 @@ export default function Mapa() {
   const [filtroUl, setFiltroUl]         = useState('')
   const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
   const [centroMapa, setCentroMapa]     = useState(null)
+  // _id del medidor seleccionado (tocado o encontrado con el buscador),
+  // para pintarlo dorado hasta que toques o busques otro
+  const [seleccionadoId, setSeleccionadoId] = useState(null)
+  // grupo (pin con número) que tocaste y todavía no eliges cuál medidor es;
+  // también se pinta dorado para que sepas qué punto tocaste
+  const [grupoSeleccionado, setGrupoSeleccionado] = useState(null)
+
+  // selecciono un medidor y suelto el grupo que hubiera tocado antes
+  function seleccionarMedidor(id) {
+    setGrupoSeleccionado(null)
+    setSeleccionadoId(id)
+  }
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
@@ -229,6 +365,11 @@ export default function Mapa() {
 
   // Detectar si es móvil
   const esMobil = window.innerWidth < 768
+
+  // Junto los medidores que están prácticamente en el mismo punto (mismo
+  // poste o misma casa) en un solo pin con contador, porque si no quedan
+  // uno encima de otro y no hay forma de tocar los de abajo
+  const grupos = useMemo(() => agruparCercanos(medidores, 5), [medidores])
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -288,6 +429,7 @@ export default function Mapa() {
       if (candidatos.length === 1) {
         const [lng, lat] = candidatos[0].ubicacion?.coordinates || []
         if (lat && lng) setCentroMapa([lat, lng])
+        seleccionarMedidor(candidatos[0]._id)
         return
       }
       if (candidatos.length > 1) {
@@ -305,6 +447,12 @@ export default function Mapa() {
         if (m.ubicacion?.coordinates) {
           const [lng, lat] = m.ubicacion.coordinates
           setCentroMapa([lat, lng])
+        }
+        seleccionarMedidor(m._id)
+        // Si el medidor es de una UL que no tienes marcada, la marco yo,
+        // porque si no su pin no está cargado y no hay nada que resaltar
+        if (m.unidadDeLectura && !ulsActivas.includes(m.unidadDeLectura)) {
+          setUlsActivas((prev) => [...prev, m.unidadDeLectura])
         }
       } else { alert('No se encontró ningún medidor') }
     } catch { setError('Error al buscar') }
@@ -596,7 +744,11 @@ export default function Mapa() {
             </div>
           )}
 
-          <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
+          {/* Zoom máximo 18: es hasta donde Esri tiene foto real en la zona.
+              Si dejaba acercar más, en el teléfono aparecían cuadrados grises.
+              Con el pin no se pierde precisión: queda en la coordenada exacta
+              donde tocas, da igual el zoom. */}
+          <MapContainer center={CENTRO_MAULE} zoom={13} maxZoom={18} style={{ height: '100%', width: '100%' }}>
             {/* Selector de capas (arriba a la derecha): calles o satélite.
                 La satelital es de Esri, sirve para ver las casas y ubicar
                 el medidor mejor en terreno. No pide API key. */}
@@ -609,12 +761,14 @@ export default function Mapa() {
                   // damos, un equipo chico, está dentro de su política).
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  maxZoom={19}
+                  // todas las capas con techo 18 (ver comentario del MapContainer)
+                  maxZoom={18}
                   // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
                   // pixel que arrastras satura la conexión y todo se siente
                   // más lento. Con esto, solo pide tiles nuevos cuando sueltas
                   // el mapa (terminaste de moverlo), no mientras lo arrastras.
                   updateWhenIdle={true}
+                  crossOrigin="anonymous"
                 />
               </LayersControl.BaseLayer>
 
@@ -623,29 +777,41 @@ export default function Mapa() {
                     pongo las capas de referencia de Esri (calles y lugares)
                     para no perderse en sectores rurales */}
                 <LayerGroup>
+                  {/* Probé con medidores reales de las 6 ULs: Esri tiene foto
+                      real hasta z18 en toda la zona, y en z19 devuelve el
+                      cuadro gris ("Map data not yet available"). Por eso el
+                      mapa completo no deja pasar de z18.
+
+                      Por si algún sector raro no tiene ni z18, dejo dos capas:
+                      1) Abajo, la foto hasta z15, que existe en todo Chile.
+                      2) Arriba, la foto buena. Con blankTile=false, donde no
+                         hay foto Esri debería mandar error en vez del gris,
+                         y ahí se ve la de abajo. */}
+                  <TileLayer
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    maxNativeZoom={15}
+                    maxZoom={18}
+                    updateWhenIdle={true}
+                    crossOrigin="anonymous"
+                  />
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                    // En zonas rurales Esri no tiene fotos en los zooms más
-                    // altos y devuelve un cuadro gris ("Map data not yet
-                    // available"). Con maxNativeZoom le pido fotos solo hasta
-                    // el 17 y desde ahí Leaflet agranda esa misma foto, así
-                    // se ve un poco más pixelado pero nunca gris.
-                    maxNativeZoom={17}
-                    maxZoom={19}
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
+                    maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={17}
-                    maxZoom={19}
+                    maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={17}
-                    maxZoom={19}
+                    maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                 </LayerGroup>
               </LayersControl.BaseLayer>
@@ -667,55 +833,113 @@ export default function Mapa() {
               </Marker>
             )}
 
-            {medidores.map(m => {
-              if (!m.ubicacion?.coordinates) return null
-              const [lng, lat] = m.ubicacion.coordinates
-              // Si TOES ya tomó este servicio en el ciclo vigente, el punto se
-              // oculta (o se atenúa con "Ver tomados"). Nunca se borra nada.
-              const vista = vistaDeMarcador(m, toes.indice, toes.config, iconos, toes.verTomados)
+            {grupos.map(grupo => {
+              const [lng, lat] = grupo[0].ubicacion.coordinates
+              // Capa TOES: saca del pin los servicios que el lector ya tomó en
+              // el ciclo vigente. Si no queda ninguno por visitar, el pin no se
+              // dibuja. Nunca se borra nada: solo cambia la visibilidad.
+              const vista = vistaDeGrupo(
+                grupo, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
+              )
               if (vista.oculto) return null
+              // Desde acá se trabaja con los visibles y no con el grupo
+              // completo, para que el contador del pin y la lista del popup
+              // digan lo mismo que se puede ir a buscar.
+              const visibles = vista.visibles
+              const elegido = visibles.find(m => m._id === seleccionadoId)
+              const varios = visibles.length > 1
+              const idGrupo = visibles.map(m => m._id).join('-')
+              // dorado si el medidor seleccionado está aquí o si tocaste
+              // este grupo; si no, el color que decidió la capa TOES (estado
+              // de mapeo, o el color de la clave si fue tomado y está solo).
+              // Si son varios, va con el contador.
+              const marcado = !!elegido || grupoSeleccionado === idGrupo
+              const base = marcado ? iconoSeleccionado : vista.icono
+              const icono = varios ? iconoConContador(base, visibles.length) : base
               return (
-                <Marker key={m._id} position={[lat, lng]} icon={vista.icono} opacity={vista.opacidad}>
-                  <Popup minWidth={220} maxWidth={260}>
-                    <div>
-                      <h6 style={{ fontSize: '0.9rem' }} className="mb-1">📍 {m.instalacion}</h6>
-                      <hr style={{ margin: '0.3rem 0' }} />
-                      {vista.toes && (
-                        <p style={{
-                          margin: '0 0 0.3rem', fontSize: '0.78rem',
-                          color: '#2f855a', fontWeight: 600,
-                        }}>
-                          ✔️ {textoToes(vista.toes, toes.config)}
-                        </p>
-                      )}
-                      <p style={{ margin: 0, fontSize: '0.8rem' }}>
-                        <strong>Estado:</strong> {m.estado}<br />
-                        <strong>Dirección:</strong> {m.direccion || '—'}<br />
-                        <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
-                        <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
-                        {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                          <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
-                        )}
-                        {m.observaciones && <><strong>Obs:</strong> {m.observaciones}<br /></>}
-                      </p>
-                      <div className="d-flex gap-1 mt-2">
-                        <button className="btn btn-primary btn-sm"
-                          onClick={() => abrirFormulario(m)}>✏️ Editar</button>
-                        {usuario.rol === 'admin' && (
-                          <button className="btn btn-danger btn-sm"
-                            onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
-                        )}
-                      </div>
+                <Marker
+                  // cambio la key al seleccionarlo para que el marcador se
+                  // vuelva a montar en dorado y abra su popup solo (evento
+                  // "add"); así funciona igual si lo tocaste o lo buscaste
+                  // (lleva el id del elegido para que también se vuelva a montar al
+                  // elegir otro medidor del mismo grupo)
+                  key={elegido ? idGrupo + '-sel-' + elegido._id : (marcado ? idGrupo + '-grupo' : idGrupo)}
+                  position={[lat, lng]}
+                  icon={icono}
+                  // atenuado si todo lo que queda en este pin ya fue tomado
+                  opacity={vista.opacidad}
+                  // encima de los demás pines si están pegados
+                  zIndexOffset={marcado ? 1000 : 0}
+                  eventHandlers={marcado
+                    ? { add: (e) => e.target.openPopup() }
+                    // si es uno solo lo selecciono al tocarlo; si son varios
+                    // marco el grupo (dorado) y se abre la lista para elegir
+                    : (varios
+                      ? { click: () => { setSeleccionadoId(null); setGrupoSeleccionado(idGrupo) } }
+                      : { click: () => seleccionarMedidor(visibles[0]._id) })}
+                >
+                  {/* En escritorio el popup sale a la DERECHA del pin (clase
+                      popup-derecha en index.css) para no tapar los pines de
+                      arriba. En el celular no hay espacio al lado, así que
+                      ahí sigue saliendo arriba como siempre. Los paddings
+                      son para que Leaflet mueva el mapa si el popup no cabe. */}
+                  <Popup
+                    minWidth={220} maxWidth={260}
+                    className={esMobil ? '' : 'popup-derecha'}
+                    closeButton={esMobil}
+                    autoPanPaddingTopLeft={[20, 20]}
+                    autoPanPaddingBottomRight={esMobil ? [20, 20] : [170, 230]}
+                  >
+                    <ContenidoPopup
+                      grupo={visibles}
+                      elegido={elegido}
+                      onElegir={(m) => seleccionarMedidor(m._id)}
+                      esMobil={esMobil}
+                      renderDetalle={(m) => (
+                        <div>
+                          <div className="d-flex justify-content-between align-items-center mb-1">
+                            <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {m.instalacion}</h6>
+                            {!esMobil && <CerrarPopup />}
+                          </div>
+                          <hr style={{ margin: '0.3rem 0' }} />
+                          {vista.toesPorId.has(m._id) && (
+                            <p style={{
+                              margin: '0 0 0.3rem', fontSize: '0.78rem',
+                              color: '#2f855a', fontWeight: 600,
+                            }}>
+                              ✔️ {textoToes(vista.toesPorId.get(m._id), toes.config)}
+                            </p>
+                          )}
+                          <p style={{ margin: 0, fontSize: '0.8rem' }}>
+                            <strong>Estado:</strong> {m.estado}<br />
+                            <strong>Dirección:</strong> {m.direccion || '—'}<br />
+                            <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
+                            <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
+                            {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
+                              <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
+                            )}
+                            {m.observaciones && <><strong>Obs:</strong> {m.observaciones}<br /></>}
+                          </p>
+                          <div className="d-flex gap-1 mt-2">
+                            <button className="btn btn-primary btn-sm"
+                              onClick={() => abrirFormulario(m)}>✏️ Editar</button>
+                            {usuario.rol === 'admin' && (
+                              <button className="btn btn-danger btn-sm"
+                                onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
+                            )}
+                          </div>
 
-                      {/* Foto directo desde el popup, sin tener que entrar
-                          a editar — así el técnico saca la foto ahí mismo,
-                          parado frente al medidor. */}
-                      <CapturaFoto
-                        instalacion={m.instalacion}
-                        fotosExistentes={m.fotos}
-                        onFotoSubida={() => cargarMedidores()}
-                      />
-                    </div>
+                          {/* Foto directo desde el popup, sin tener que entrar
+                              a editar — así el técnico saca la foto ahí mismo,
+                              parado frente al medidor. */}
+                          <CapturaFoto
+                            instalacion={m.instalacion}
+                            fotosExistentes={m.fotos}
+                            onFotoSubida={() => cargarMedidores()}
+                          />
+                        </div>
+                      )}
+                    />
                   </Popup>
                 </Marker>
               )
