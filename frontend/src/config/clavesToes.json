@@ -1,11 +1,19 @@
 {
   "_comentario": [
     "Configuración editable de la integración con TOES.",
-    "Las claves 01, 02, 08, 09, 20 y 26 se observaron en logs reales de la UL E3505704;",
-    "la 11 apareció en el segundo día de ruta y no estaba en la tabla del README.",
-    "El significado oficial de cada número lo tiene que confirmar CGE: mientras",
-    "'nombre' esté en null, la app muestra 'Clave NN' con color neutro y no inventa nada.",
-    "'textoToes' es lo que el lector debe elegir dentro de TOES para esa etiqueta."
+    "",
+    "Tabla oficial de claves de la columna 'Normal' de TOES. Las marcadas con",
+    "activo: false siguen apareciendo como '(No Activo)': el lector ya no las",
+    "puede elegir, pero se dejan acá porque un log viejo todavía puede traerlas.",
+    "Las inactivas no llevan color propio y salen con el neutro.",
+    "",
+    "En los logs reales de la UL E3505704 aparecieron 01, 02, 08, 09, 11, 20 y",
+    "26: todas activas, ninguna inactiva. Es consistente con que TOES solo",
+    "escriba códigos vigentes.",
+    "",
+    "'textoToes' es lo que el lector debe elegir dentro de TOES para esa",
+    "etiqueta. Si está en null, la app muestra solo el nombre de la etiqueta y",
+    "no le sugiere ninguna clave."
   ],
 
   "intervaloRevisionSegundos": 5,
@@ -13,18 +21,58 @@
   "colorClaveDesconocida": "#9E9E9E",
 
   "claves": {
-    "01": { "nombre": null, "color": "#E53935" },
-    "02": { "nombre": null, "color": "#8E24AA" },
-    "08": { "nombre": null, "color": "#FB8C00" },
-    "09": { "nombre": null, "color": "#6D4C41" },
-    "11": { "nombre": null, "color": "#00897B" },
-    "20": { "nombre": null, "color": "#1E88E5" },
-    "26": { "nombre": null, "color": "#C0CA33" }
+    "01": { "nombre": "Casa cerrada - Medidor interior",        "activo": true,  "color": "#FB8C00" },
+    "02": { "nombre": "Medidor no ubicado",                     "activo": true,  "color": "#1E88E5" },
+    "03": { "nombre": "Por cliente",                            "activo": true,  "color": "#00ACC1" },
+    "04": { "nombre": "Lectura válida",                         "activo": true,  "color": "#43A047" },
+    "05": { "nombre": "Problema en medidor - Sin lectura",      "activo": true,  "color": "#E53935" },
+    "06": { "nombre": "Casa deshabitada",                       "activo": true,  "color": "#8D6E63" },
+    "07": { "nombre": "Problema en medidor - Con lectura",      "activo": true,  "color": "#F4511E" },
+    "08": { "nombre": "Casa cerrada - Vidrio empañado o sucio", "activo": true,  "color": "#FFB300" },
+    "09": { "nombre": "Casa cerrada - Medidor mal ubicado",     "activo": true,  "color": "#FDD835" },
+    "10": { "nombre": "Cambio de medidores",                    "activo": true,  "color": "#7CB342" },
+    "11": { "nombre": "Posible CNR",                            "activo": true,  "color": "#D81B60" },
+    "12": { "nombre": "Medidor destruido",                      "activo": true,  "color": "#6D4C41" },
+    "13": { "nombre": "Mal enrutado",                           "activo": true,  "color": "#5E35B1" },
+    "14": { "nombre": "Riesgo eléctrico",                       "activo": true,  "color": "#C62828" },
+    "15": { "nombre": "Caja energizada",                        "activo": false },
+    "16": { "nombre": "Sin empalme",                            "activo": false },
+    "17": { "nombre": "Problemas con RESET",                    "activo": false },
+    "18": { "nombre": "Instalación sin energía",                "activo": false },
+    "19": { "nombre": "Sin fecha y hora de demanda",            "activo": false },
+    "20": { "nombre": "No permite acceso",                      "activo": true,  "color": "#8E24AA" },
+    "21": { "nombre": "No hay acceso al medidor",               "activo": false },
+    "22": { "nombre": "Número de serie no corresponde",         "activo": false },
+    "23": { "nombre": "Dígito corrido",                         "activo": false },
+    "24": { "nombre": "Demanda máxima al tope",                 "activo": false },
+    "25": { "nombre": "Medidor mal tipificado",                 "activo": false },
+    "26": { "nombre": "Sitio eriazo",                           "activo": true,  "color": "#A1887F" },
+    "27": { "nombre": "Empalme dañado por causa de terremoto",  "activo": false },
+    "28": { "nombre": "Empalme irreparable causa de terremoto", "activo": false },
+    "29": { "nombre": "Inmueble destruido causa del terremoto", "activo": false },
+    "30": { "nombre": "Casa cerrada balneario",                 "activo": true,  "color": "#FF7043" },
+    "31": { "nombre": "Cantidad de cifras NO corresponde",      "activo": false },
+    "32": { "nombre": "Consumo dudoso",                         "activo": true,  "color": "#EC407A" },
+    "33": { "nombre": "Medidor frenado",                        "activo": true,  "color": "#AB47BC" },
+    "34": { "nombre": "Sin lectura - Contingencia",             "activo": true,  "color": "#78909C" }
   },
 
   "etiquetas": {
-    "sitioEriazo":  { "nombre": "Sitio eriazo",  "color": "#8D6E63", "textoToes": "PENDIENTE" },
-    "sinEmpalme":   { "nombre": "Sin empalme",   "color": "#5E35B1", "textoToes": "PENDIENTE" },
-    "noEncontrado": { "nombre": "No encontrado", "color": "#D81B60", "textoToes": "PENDIENTE" }
+    "sitioEriazo": {
+      "nombre": "Sitio eriazo",
+      "color": "#A1887F",
+      "textoToes": "26 - Sitio eriazo"
+    },
+    "noEncontrado": {
+      "nombre": "No encontrado",
+      "color": "#1E88E5",
+      "textoToes": "02 - Medidor no ubicado"
+    },
+    "sinEmpalme": {
+      "nombre": "Sin empalme",
+      "color": "#5E35B1",
+      "_nota": "La clave 16 'Sin empalme' existe pero está (No Activo): el lector ya no la puede elegir. Hasta que CGE diga con cuál reemplazarla, esta etiqueta no sugiere ninguna clave.",
+      "textoToes": null
+    }
   }
 }

@@ -107,6 +107,8 @@ Esto tiene una consecuencia de arquitectura importante: **la funcionalidad centr
 - **Cierres:** TOES escribe dos variantes, `Cierre Especial` (parcial, al terminar un día) y `Cierre Final` (ruta completa). Las dos se reconocen; la especificación original solo documentaba la primera.
 - Un medidor con varios registros (`ZWNUMMER`) escribe un bloque por registro: se colapsan a una sola instalación.
 - `parsearLog` devuelve un contador `invalidos`. Si TOES cambia de formato ese número sube y el panel lo muestra — es el canario, no un error silencioso.
+- **Las claves están en `clavesToes.json`**, con la tabla oficial de la columna "Normal" de TOES: 34 códigos, 20 activos y 14 marcados `activo: false`. Los inactivos siguen ahí porque un log viejo todavía puede traerlos, y salen con el color neutro. Una clave que no esté en la tabla tampoco rompe nada: sale como "clave NN" en neutro.
+- Las 7 claves que aparecieron en los logs reales (`01, 02, 08, 09, 11, 20, 26`) son **todas activas**, lo que encaja con que TOES solo escriba códigos vigentes.
 - `ZZABLHINW2` (valores `"04"`, `"32"`) sigue sin significado conocido. Se ignora.
 
 ### Lo que se mide sobre datos reales
@@ -133,7 +135,7 @@ Pendiente:
   - `@capacitor/filesystem` no sirve: solo accede a directorios propios de la app, no al almacenamiento compartido.
   - Una PWA pura no puede hacerlo: Chrome en Android no expone `showDirectoryPicker()`, solo el Origin Private File System, que es un sandbox.
 - **Etiquetas anticipadas** (sitio eriazo / sin empalme / no encontrado) para avisarle al lector qué clave elegir en TOES. Es la única parte que sí toca el backend, porque las etiquetas son datos propios de la app y se comparten entre usuarios: campo `etiquetas: [String]` en `models/Medidor.js` y en la whitelist `camposPermitidos` de `rutas/medidores.js`. **Nunca cambiar etiquetas automáticamente.**
-- **El significado oficial de las claves** `01, 02, 08, 09, 11, 20, 26` lo tiene que confirmar CGE. En `clavesToes.json` cada una tiene `nombre: null` a propósito: la app muestra "Clave NN" con color neutro en vez de inventar un significado. La clave `11` no estaba en la tabla de la especificación y apareció en el segundo día de ruta.
+- **Una sola etiqueta anticipada sigue sin clave que sugerir.** "Sitio eriazo" y "No encontrado" ya apuntan a las claves 26 y 02. "Sin empalme" no: la clave 16 existe pero está inactiva, así que hasta que CGE diga con cuál se reemplaza, esa etiqueta no sugiere ninguna.
 - **Crear una cuenta `lector`** con `unidadesLectura: ["E3505704"]` para probar el camino de permisos real.
 
 ## Autenticación y autorización
