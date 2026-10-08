@@ -617,16 +617,24 @@ export default function Mapa() {
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    // En zonas rurales Esri no tiene fotos en los zooms más
+                    // altos y devuelve un cuadro gris ("Map data not yet
+                    // available"). Con maxNativeZoom le pido fotos solo hasta
+                    // el 17 y desde ahí Leaflet agranda esa misma foto, así
+                    // se ve un poco más pixelado pero nunca gris.
+                    maxNativeZoom={17}
                     maxZoom={19}
                     updateWhenIdle={true}
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                    maxNativeZoom={17}
                     maxZoom={19}
                     updateWhenIdle={true}
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                    maxNativeZoom={17}
                     maxZoom={19}
                     updateWhenIdle={true}
                   />
