@@ -614,15 +614,24 @@ export default function Mapa() {
                     pongo las capas de referencia de Esri (calles y lugares)
                     para no perderse en sectores rurales */}
                 <LayerGroup>
+                  {/* Truco de dos capas para que nunca se vea gris:
+                      1) Abajo, la foto de Esri pedida solo hasta zoom 15,
+                         que existe en todo Chile. Leaflet la agranda
+                         cuando haces más zoom (se ve pixelada, pero se ve).
+                      2) Arriba, la misma foto en máxima calidad. Con
+                         blankTile=false, donde Esri no tiene foto devuelve
+                         error en vez del cuadro gris, ese pedazo queda
+                         transparente y se ve la capa de abajo. */}
+                  <TileLayer
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    maxNativeZoom={15}
+                    maxZoom={19}
+                    updateWhenIdle={true}
+                  />
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                    // En zonas rurales Esri no tiene fotos en los zooms más
-                    // altos y devuelve un cuadro gris ("Map data not yet
-                    // available"). Con maxNativeZoom le pido fotos solo hasta
-                    // el 17 y desde ahí Leaflet agranda esa misma foto, así
-                    // se ve un poco más pixelado pero nunca gris.
-                    maxNativeZoom={17}
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
+                    maxNativeZoom={19}
                     maxZoom={19}
                     updateWhenIdle={true}
                   />
