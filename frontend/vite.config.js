@@ -8,6 +8,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // el registro lo hago yo en main.jsx (para que recargue sola al actualizar)
+      injectRegister: false,
       // Cachea el mapa base (tiles de CARTO) para que, con mala señal en
       // terreno, el mapa de zonas ya visitadas siga apareciendo aunque no
       // haya red — no reemplaza tener señal, pero ayuda con la lentitud
@@ -20,10 +22,11 @@ export default defineConfig({
         // control apenas está lista, sin esperar nada.
         skipWaiting: true,
         clientsClaim: true,
-        // Si alguien abre una URL de la API directo en el navegador (ej. una
-        // foto), no quiero que el service worker le responda con el index.html
-        // de la app. Con esto esas rutas siempre van a la red.
-        navigateFallbackDenylist: [/^\/api/],
+        // borra los archivos de versiones anteriores del caché, para que no
+        // se mezclen .js viejos con nuevos (eso era el error raro al abrir)
+        cleanupOutdatedCaches: true,
+        // la API nunca debe responder con el index.html cacheado
+        navigateFallbackDenylist: [/^\/api\//],
         // Las llamadas a la API (ULs, medidores, login, etc.) NUNCA deben
         // servirse desde caché — siempre red primero. Antes no estaban
         // excluidas explícitamente, así que en algunos navegadores el
@@ -31,40 +34,23 @@ export default defineConfig({
         // viejas o rotas.
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/[abcd]\.basemaps\.cartocdn\.com\/.*/,
+            // ojo: cambié el nombre del caché para no seguir sirviendo los tiles
+            // viejos de CARTO que quedaron guardados con el "API KEY REQUIRED"
+            urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tiles-mapa',
+              cacheName: 'tiles-osm',
               expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
-              // Solo 200: los tiles ahora se piden con crossOrigin (ver
-              // Mapa.jsx), así que llegan como respuesta normal y no "opaca".
-              // Las opacas Chrome las cuenta como ~7 MB cada una en la cuota,
-              // y con 2000 tiles eso reventaba el almacenamiento del celular.
-              cacheableResponse: { statuses: [200] },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
           {
-            // Lo mismo para el satélite de Esri (fotos + nombres de calles).
-            // Le puse menos entradas que al mapa normal porque las fotos pesan
-            // bastante más y no quiero llenarle el celular a nadie.
-            urlPattern: /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/.*/,
+            // tiles satelitales de Esri, mismo trato que los de OSM
+            urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tiles-satelite',
-              expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
-              cacheableResponse: { statuses: [200] },
-            },
-          },
-          {
-            // Los íconos de los marcadores (verde, rojo, azul, etc.) vienen de
-            // unpkg y GitHub. Sin esto, sin señal el mapa cargaba pero los
-            // medidores aparecían sin ícono. Son pocos archivos, así que acá
-            // sí da lo mismo que sean respuestas opacas.
-            urlPattern: /^https:\/\/(unpkg\.com\/leaflet@|raw\.githubusercontent\.com\/pointhi\/leaflet-color-markers\/).*/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'iconos-marcadores',
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheName: 'tiles-satelite-v2', // v2: así se botan los cuadros grises que quedaron guardados
+              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
               cacheableResponse: { statuses: [0, 200] },
             },
           },
@@ -82,7 +68,6 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
-        lang: 'es',
         icons: [
           { src: '/pwa-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa-512.png', sizes: '512x512', type: 'image/png' },
