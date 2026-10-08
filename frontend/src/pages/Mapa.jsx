@@ -9,6 +9,9 @@ import CargaKml from '../components/CargaKml'
 import CapturaFoto from '../components/CapturaFoto'
 import GestionUsuarios from '../components/GestionUsuarios'
 import MiUbicacion from '../components/MiUbicacion'
+import PanelToes from '../components/PanelToes'
+import { useToes } from '../hooks/useToes'
+import { vistaDeMarcador, textoToes } from '../utils/vistaMarcador'
 import 'leaflet/dist/leaflet.css'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -219,6 +222,10 @@ export default function Mapa() {
   const [medidorEdit, setMedidorEdit]   = useState(null)
   const [guardando, setGuardando]       = useState(false)
   const [panelVisible, setPanelVisible] = useState(true)
+
+  // Lecturas ya tomadas en TOES. Todo el estado vive en el teléfono:
+  // el log tiene datos de clientes y no se sube a ningún servidor.
+  const toes = useToes(ulsActivas)
 
   // Detectar si es móvil
   const esMobil = window.innerWidth < 768
@@ -504,6 +511,8 @@ export default function Mapa() {
               </div>
             </div>
 
+            <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
+
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
               <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
                 📊 Resumen
@@ -661,13 +670,24 @@ export default function Mapa() {
             {medidores.map(m => {
               if (!m.ubicacion?.coordinates) return null
               const [lng, lat] = m.ubicacion.coordinates
-              const icono = iconos[m.estado] || iconos.pendiente
+              // Si TOES ya tomó este servicio en el ciclo vigente, el punto se
+              // oculta (o se atenúa con "Ver tomados"). Nunca se borra nada.
+              const vista = vistaDeMarcador(m, toes.indice, toes.config, iconos, toes.verTomados)
+              if (vista.oculto) return null
               return (
-                <Marker key={m._id} position={[lat, lng]} icon={icono}>
+                <Marker key={m._id} position={[lat, lng]} icon={vista.icono} opacity={vista.opacidad}>
                   <Popup minWidth={220} maxWidth={260}>
                     <div>
                       <h6 style={{ fontSize: '0.9rem' }} className="mb-1">📍 {m.instalacion}</h6>
                       <hr style={{ margin: '0.3rem 0' }} />
+                      {vista.toes && (
+                        <p style={{
+                          margin: '0 0 0.3rem', fontSize: '0.78rem',
+                          color: '#2f855a', fontWeight: 600,
+                        }}>
+                          ✔️ {textoToes(vista.toes, toes.config)}
+                        </p>
+                      )}
                       <p style={{ margin: 0, fontSize: '0.8rem' }}>
                         <strong>Estado:</strong> {m.estado}<br />
                         <strong>Dirección:</strong> {m.direccion || '—'}<br />

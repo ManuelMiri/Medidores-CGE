@@ -1,0 +1,30 @@
+{
+  "_comentario": [
+    "Configuración editable de la integración con TOES.",
+    "Las claves 01, 02, 08, 09, 20 y 26 se observaron en logs reales de la UL E3505704;",
+    "la 11 apareció en el segundo día de ruta y no estaba en la tabla del README.",
+    "El significado oficial de cada número lo tiene que confirmar CGE: mientras",
+    "'nombre' esté en null, la app muestra 'Clave NN' con color neutro y no inventa nada.",
+    "'textoToes' es lo que el lector debe elegir dentro de TOES para esa etiqueta."
+  ],
+
+  "intervaloRevisionSegundos": 5,
+  "diasLogsCargaInicial": 45,
+  "colorClaveDesconocida": "#9E9E9E",
+
+  "claves": {
+    "01": { "nombre": null, "color": "#E53935" },
+    "02": { "nombre": null, "color": "#8E24AA" },
+    "08": { "nombre": null, "color": "#FB8C00" },
+    "09": { "nombre": null, "color": "#6D4C41" },
+    "11": { "nombre": null, "color": "#00897B" },
+    "20": { "nombre": null, "color": "#1E88E5" },
+    "26": { "nombre": null, "color": "#C0CA33" }
+  },
+
+  "etiquetas": {
+    "sitioEriazo":  { "nombre": "Sitio eriazo",  "color": "#8D6E63", "textoToes": "PENDIENTE" },
+    "sinEmpalme":   { "nombre": "Sin empalme",   "color": "#5E35B1", "textoToes": "PENDIENTE" },
+    "noEncontrado": { "nombre": "No encontrado", "color": "#D81B60", "textoToes": "PENDIENTE" }
+  }
+}

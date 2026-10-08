@@ -1,3 +1,16 @@
 node_modules/
 .env
 .aider*
+
+# Logs de TOES. Traen datos de clientes (direcciones, lecturas y coordenadas),
+# asi que no entran al repo ni para pruebas: para los tests se usa el fixture
+# anonimizado de frontend/src/utils/__fixtures__/.
+Log_TOES*.txt
+*.log.txt
+
+# Firma del APK. Si se filtra, cualquiera puede publicar una actualizacion
+# falsa de la app; si se pierde, no hay forma de actualizar los APK ya
+# instalados y hay que reinstalar en todos los telefonos.
+*.jks
+*.keystore
+keystore.properties
