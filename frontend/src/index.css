@@ -1,0 +1,59 @@
+/* Popup a la derecha del pin (solo escritorio). Leaflet siempre arma el
+   popup centrado ENCIMA del punto y usa transform en el contenedor, así que
+   muevo la caja de adentro: translateX(50%) deja su borde izquierdo justo en
+   el pin (+34px de espacio, para no tapar el contador) y translateY la baja hasta quedar a la altura
+   del pin. La flechita de abajo la escondo y dibujo una apuntando a la
+   izquierda. */
+/* El contenedor de Leaflet sigue ocupando su lugar original (encima del
+   pin) aunque la caja se vea a la derecha, y tapaba los clics a los pines
+   de arriba. Lo hago "transparente" a los clics y solo la caja los recibe. */
+.popup-derecha {
+  pointer-events: none;
+}
+.popup-derecha .leaflet-popup-content-wrapper {
+  pointer-events: auto;
+  transform: translate(calc(50% + 34px), calc(50% + 54px));
+  position: relative;
+}
+.popup-derecha .leaflet-popup-tip-container {
+  display: none;
+}
+.popup-derecha .leaflet-popup-content-wrapper::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  margin-top: -8px;
+  border-width: 8px 8px 8px 0;
+  border-style: solid;
+  border-color: transparent #fff transparent transparent;
+}
+
+/* Pin con contador: cuando hay varios medidores en el mismo punto */
+.pin-grupo {
+  position: relative;
+  width: 25px;
+  height: 41px;
+}
+.pin-grupo img {
+  width: 25px;
+  height: 41px;
+  display: block;
+}
+.pin-grupo-contador {
+  position: absolute;
+  top: -12px;
+  right: -14px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 13px;
+  background: #c53030;
+  color: #fff;
+  border: 2px solid #fff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}

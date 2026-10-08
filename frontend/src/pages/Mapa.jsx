@@ -335,6 +335,15 @@ export default function Mapa() {
   // _id del medidor seleccionado (tocado o encontrado con el buscador),
   // para pintarlo dorado hasta que toques o busques otro
   const [seleccionadoId, setSeleccionadoId] = useState(null)
+  // grupo (pin con número) que tocaste y todavía no eliges cuál medidor es;
+  // también se pinta dorado para que sepas qué punto tocaste
+  const [grupoSeleccionado, setGrupoSeleccionado] = useState(null)
+
+  // selecciono un medidor y suelto el grupo que hubiera tocado antes
+  function seleccionarMedidor(id) {
+    setGrupoSeleccionado(null)
+    setSeleccionadoId(id)
+  }
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
@@ -408,7 +417,7 @@ export default function Mapa() {
       if (candidatos.length === 1) {
         const [lng, lat] = candidatos[0].ubicacion?.coordinates || []
         if (lat && lng) setCentroMapa([lat, lng])
-        setSeleccionadoId(candidatos[0]._id)
+        seleccionarMedidor(candidatos[0]._id)
         return
       }
       if (candidatos.length > 1) {
@@ -427,7 +436,7 @@ export default function Mapa() {
           const [lng, lat] = m.ubicacion.coordinates
           setCentroMapa([lat, lng])
         }
-        setSeleccionadoId(m._id)
+        seleccionarMedidor(m._id)
         // Si el medidor es de una UL que no tienes marcada, la marco yo,
         // porque si no su pin no está cargado y no hay nada que resaltar
         if (m.unidadDeLectura && !ulsActivas.includes(m.unidadDeLectura)) {
@@ -814,11 +823,13 @@ export default function Mapa() {
               const [lng, lat] = grupo[0].ubicacion.coordinates
               const elegido = grupo.find(m => m._id === seleccionadoId)
               const varios = grupo.length > 1
-              // icono: dorado si el seleccionado está aquí; si no, el color
-              // por estado del primero. Si son varios, va con el contador.
-              const base = elegido ? iconoSeleccionado : (iconos[grupo[0].estado] || iconos.pendiente)
-              const icono = varios ? iconoConContador(base, grupo.length) : base
               const idGrupo = grupo.map(m => m._id).join('-')
+              // dorado si el medidor seleccionado está aquí o si tocaste
+              // este grupo; si no, el color por estado del primero.
+              // Si son varios, va con el contador.
+              const marcado = !!elegido || grupoSeleccionado === idGrupo
+              const base = marcado ? iconoSeleccionado : (iconos[grupo[0].estado] || iconos.pendiente)
+              const icono = varios ? iconoConContador(base, grupo.length) : base
               return (
                 <Marker
                   // cambio la key al seleccionarlo para que el marcador se
@@ -826,16 +837,18 @@ export default function Mapa() {
                   // "add"); así funciona igual si lo tocaste o lo buscaste
                   // (lleva el id del elegido para que también se vuelva a montar al
                   // elegir otro medidor del mismo grupo)
-                  key={elegido ? idGrupo + '-sel-' + elegido._id : idGrupo}
+                  key={elegido ? idGrupo + '-sel-' + elegido._id : (marcado ? idGrupo + '-grupo' : idGrupo)}
                   position={[lat, lng]}
                   icon={icono}
                   // encima de los demás pines si están pegados
-                  zIndexOffset={elegido ? 1000 : 0}
-                  eventHandlers={elegido
+                  zIndexOffset={marcado ? 1000 : 0}
+                  eventHandlers={marcado
                     ? { add: (e) => e.target.openPopup() }
                     // si es uno solo lo selecciono al tocarlo; si son varios
-                    // primero se abre la lista y se selecciona al elegir
-                    : (varios ? undefined : { click: () => setSeleccionadoId(grupo[0]._id) })}
+                    // marco el grupo (dorado) y se abre la lista para elegir
+                    : (varios
+                      ? { click: () => { setSeleccionadoId(null); setGrupoSeleccionado(idGrupo) } }
+                      : { click: () => seleccionarMedidor(grupo[0]._id) })}
                 >
                   {/* En escritorio el popup sale a la DERECHA del pin (clase
                       popup-derecha en index.css) para no tapar los pines de
@@ -852,7 +865,7 @@ export default function Mapa() {
                     <ContenidoPopup
                       grupo={grupo}
                       elegido={elegido}
-                      onElegir={(m) => setSeleccionadoId(m._id)}
+                      onElegir={(m) => seleccionarMedidor(m._id)}
                       esMobil={esMobil}
                       renderDetalle={(m) => (
                         <div>
