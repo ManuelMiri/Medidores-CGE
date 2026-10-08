@@ -11,7 +11,7 @@
     "test": "node --test src/utils/*.test.js",
     "build:native": "vite build --mode native",
     "android:sync": "npm run build:native && cap sync android",
-    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android:apk": "npm run android:sync && cd android && .\\gradlew.bat assembleDebug",
     "android:open": "cap open android"
   },
   "dependencies": {
