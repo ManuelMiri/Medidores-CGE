@@ -10,7 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       // el registro lo hago yo en main.jsx (para que recargue sola al actualizar)
       injectRegister: false,
-      // Cachea el mapa base (tiles de CARTO) para que, con mala señal en
+      // Cachea el mapa base (calles de OSM y satélite de Esri) para que, con mala señal en
       // terreno, el mapa de zonas ya visitadas siga apareciendo aunque no
       // haya red — no reemplaza tener señal, pero ayuda con la lentitud
       // que veíamos en zonas rurales.
@@ -39,9 +39,16 @@ export default defineConfig({
             urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tiles-osm',
-              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
-              cacheableResponse: { statuses: [0, 200] },
+              cacheName: 'tiles-osm-v2',
+              // purgeOnQuotaError: si el celular se queda sin espacio, borra
+              // este caché en vez de romper el service worker entero
+              expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 30, purgeOnQuotaError: true }, // 30 días
+              // Antes guardaba también status 0 (respuestas "opacas"). Chrome
+              // cuenta cada respuesta opaca como ~7 MB en la cuota, así que con
+              // unos cientos de tiles el celular se quedaba sin espacio y la PWA
+              // empezaba a fallar. Ahora los tiles se piden con CORS
+              // (crossOrigin en Mapa.jsx) y solo guardo respuestas 200 reales.
+              cacheableResponse: { statuses: [200] },
             },
           },
           {
@@ -49,9 +56,9 @@ export default defineConfig({
             urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tiles-satelite-v2', // v2: así se botan los cuadros grises que quedaron guardados
-              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
-              cacheableResponse: { statuses: [0, 200] },
+              cacheName: 'tiles-satelite-v3', // v3: bota los cuadros grises y las respuestas opacas guardadas
+              expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 30, purgeOnQuotaError: true }, // 30 días
+              cacheableResponse: { statuses: [200] }, // ver comentario de arriba
             },
           },
           {
@@ -67,7 +74,11 @@ export default defineConfig({
         theme_color: '#2b6cb0',
         background_color: '#ffffff',
         display: 'standalone',
+        id: '/',
         start_url: '/',
+        scope: '/',
+        lang: 'es',
+        orientation: 'portrait',
         icons: [
           { src: '/pwa-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa-512.png', sizes: '512x512', type: 'image/png' },

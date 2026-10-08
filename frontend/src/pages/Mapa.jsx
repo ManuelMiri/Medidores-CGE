@@ -611,6 +611,7 @@ export default function Mapa() {
                   // más lento. Con esto, solo pide tiles nuevos cuando sueltas
                   // el mapa (terminaste de moverlo), no mientras lo arrastras.
                   updateWhenIdle={true}
+                  crossOrigin="anonymous"
                 />
               </LayersControl.BaseLayer>
 
@@ -634,22 +635,26 @@ export default function Mapa() {
                     maxNativeZoom={15}
                     maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
                     maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
                     maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
                     maxZoom={18}
                     updateWhenIdle={true}
+                    crossOrigin="anonymous"
                   />
                 </LayerGroup>
               </LayersControl.BaseLayer>

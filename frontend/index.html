@@ -3,14 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/pwa-192.png" />
+    <!-- iPhone no usa el manifest para el ícono, necesita este -->
+    <link rel="apple-touch-icon" href="/pwa-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <meta name="theme-color" content="#2b6cb0" />
-    <!-- iPhone no lee los íconos del manifest: sin esto, al "Agregar a inicio"
-         usa una captura de pantalla fea como ícono. -->
-    <link rel="apple-touch-icon" href="/pwa-192.png" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="MLA Maule" />
     <meta name="description" content="Sistema de localización y seguimiento de medidores eléctricos — MLA Maule" />
     <title>MLA Maule — Medidores</title>
   </head>
