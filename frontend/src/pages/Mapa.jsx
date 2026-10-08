@@ -1,5 +1,5 @@
 // src/pages/Mapa.jsx
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
@@ -46,22 +46,27 @@ const iconos = {
   }),
 }
 
-// Icono para el medidor que encontraste con el buscador: más grande y de
-// otro color (dorado), para que salte a la vista entre todos los demás
-const iconoResaltado = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+// Icono del medidor seleccionado (el que tocaste o encontraste con el
+// buscador): mismo tamaño que los demás, solo cambia a dorado para que se
+// note cuál es sin tapar los pines de al lado
+const iconoSeleccionado = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-gold.png',
+  iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [38, 62], iconAnchor: [19, 62], popupAnchor: [1, -54], shadowSize: [62, 62],
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
 })
 
-// Un círculo que late debajo del pin encontrado (la animación está en
-// index.css, clase .pulso-medidor)
-const iconoPulso = L.divIcon({
-  className: '',
-  html: '<div class="pulso-medidor"></div>',
-  iconSize: [60, 60],
-  iconAnchor: [30, 30],
-})
+// Botón ✕ propio para el popup (el de Leaflet lo escondo en escritorio
+// porque ahí corro el popup a la derecha del pin y el ✕ original quedaba
+// flotando en otro lado)
+function CerrarPopup() {
+  const map = useMap()
+  return (
+    <button type="button" className="btn-close btn-sm" aria-label="Cerrar"
+      style={{ fontSize: '0.6rem' }}
+      onClick={() => map.closePopup()} />
+  )
+}
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
 // ese contenedor cambia de tamaño (se muestra/oculta el panel lateral,
@@ -230,8 +235,9 @@ export default function Mapa() {
   const [filtroUl, setFiltroUl]         = useState('')
   const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
   const [centroMapa, setCentroMapa]     = useState(null)
-  // _id del medidor encontrado con el buscador, para resaltarlo en el mapa
-  const [encontradoId, setEncontradoId] = useState(null)
+  // _id del medidor seleccionado (tocado o encontrado con el buscador),
+  // para pintarlo dorado hasta que toques o busques otro
+  const [seleccionadoId, setSeleccionadoId] = useState(null)
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
@@ -300,7 +306,7 @@ export default function Mapa() {
       if (candidatos.length === 1) {
         const [lng, lat] = candidatos[0].ubicacion?.coordinates || []
         if (lat && lng) setCentroMapa([lat, lng])
-        setEncontradoId(candidatos[0]._id)
+        setSeleccionadoId(candidatos[0]._id)
         return
       }
       if (candidatos.length > 1) {
@@ -319,7 +325,7 @@ export default function Mapa() {
           const [lng, lat] = m.ubicacion.coordinates
           setCentroMapa([lat, lng])
         }
-        setEncontradoId(m._id)
+        setSeleccionadoId(m._id)
         // Si el medidor es de una UL que no tienes marcada, la marco yo,
         // porque si no su pin no está cargado y no hay nada que resaltar
         if (m.unidadDeLectura && !ulsActivas.includes(m.unidadDeLectura)) {
@@ -705,26 +711,40 @@ export default function Mapa() {
             {medidores.map(m => {
               if (!m.ubicacion?.coordinates) return null
               const [lng, lat] = m.ubicacion.coordinates
-              const resaltado = m._id === encontradoId
-              const icono = resaltado ? iconoResaltado : (iconos[m.estado] || iconos.pendiente)
+              const seleccionado = m._id === seleccionadoId
+              const icono = seleccionado ? iconoSeleccionado : (iconos[m.estado] || iconos.pendiente)
               return (
-                <Fragment key={m._id}>
-                {resaltado && (
-                  <Marker position={[lat, lng]} icon={iconoPulso} interactive={false} zIndexOffset={900} />
-                )}
                 <Marker
-                  // cambio la key al resaltarlo para que el marcador se vuelva
-                  // a montar y se abra su popup solo (evento "add")
-                  key={resaltado ? m._id + '-resaltado' : m._id}
+                  // cambio la key al seleccionarlo para que el marcador se
+                  // vuelva a montar con el icono dorado y abra su popup solo
+                  // (evento "add"); así funciona igual si lo tocaste o si
+                  // lo encontraste con el buscador
+                  key={seleccionado ? m._id + '-sel' : m._id}
                   position={[lat, lng]}
                   icon={icono}
-                  // encima de todos los demás pines, aunque estén pegados
-                  zIndexOffset={resaltado ? 1000 : 0}
-                  eventHandlers={resaltado ? { add: (e) => e.target.openPopup() } : undefined}
+                  // encima de los demás pines si están pegados
+                  zIndexOffset={seleccionado ? 1000 : 0}
+                  eventHandlers={seleccionado
+                    ? { add: (e) => e.target.openPopup() }
+                    : { click: () => setSeleccionadoId(m._id) }}
                 >
-                  <Popup minWidth={220} maxWidth={260}>
+                  {/* En escritorio el popup sale a la DERECHA del pin (clase
+                      popup-derecha en index.css) para no tapar los pines de
+                      arriba. En el celular no hay espacio al lado, así que
+                      ahí sigue saliendo arriba como siempre. Los paddings
+                      son para que Leaflet mueva el mapa si el popup no cabe. */}
+                  <Popup
+                    minWidth={220} maxWidth={260}
+                    className={esMobil ? '' : 'popup-derecha'}
+                    closeButton={esMobil}
+                    autoPanPaddingTopLeft={[20, 20]}
+                    autoPanPaddingBottomRight={esMobil ? [20, 20] : [170, 230]}
+                  >
                     <div>
-                      <h6 style={{ fontSize: '0.9rem' }} className="mb-1">📍 {m.instalacion}</h6>
+                      <div className="d-flex justify-content-between align-items-center mb-1">
+                        <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {m.instalacion}</h6>
+                        {!esMobil && <CerrarPopup />}
+                      </div>
                       <hr style={{ margin: '0.3rem 0' }} />
                       <p style={{ margin: 0, fontSize: '0.8rem' }}>
                         <strong>Estado:</strong> {m.estado}<br />
@@ -756,7 +776,6 @@ export default function Mapa() {
                     </div>
                   </Popup>
                 </Marker>
-                </Fragment>
               )
             })}
           </MapContainer>
