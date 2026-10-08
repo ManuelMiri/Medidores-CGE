@@ -1,8 +1,7 @@
 // src/pages/Mapa.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
-import L from 'leaflet'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
@@ -10,168 +9,12 @@ import CapturaFoto from '../components/CapturaFoto'
 import GestionUsuarios from '../components/GestionUsuarios'
 import MiUbicacion from '../components/MiUbicacion'
 import PanelToes from '../components/PanelToes'
+import CapaMedidores from '../components/CapaMedidores'
 import { useToes } from '../hooks/useToes'
-import { vistaDeGrupo, textoToes } from '../utils/vistaMarcador'
+import { vistaDeGrupo } from '../utils/vistaMarcador'
+import { iconos } from '../utils/iconosMapa'
+import { agruparCercanos } from '../utils/agrupar'
 import 'leaflet/dist/leaflet.css'
-
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
-
-const iconos = {
-  localizado: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  perdido: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  pendiente: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  revision: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  nuevo: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-}
-
-// Icono del medidor seleccionado (el que tocaste o encontraste con el
-// buscador): mismo tamaño que los demás, solo cambia a dorado para que se
-// note cuál es sin tapar los pines de al lado
-const iconoSeleccionado = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-gold.png',
-  iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-})
-
-// Botón ✕ propio para el popup (el de Leaflet lo escondo en escritorio
-// porque ahí corro el popup a la derecha del pin y el ✕ original quedaba
-// flotando en otro lado)
-function CerrarPopup() {
-  const map = useMap()
-  return (
-    <button type="button" className="btn-close btn-sm" aria-label="Cerrar"
-      style={{ fontSize: '0.6rem' }}
-      onClick={() => map.closePopup()} />
-  )
-}
-
-// Agrupa medidores que están a menos de `metros` entre sí. Para distancias
-// tan chicas basta con pasar grados a metros a mano (no hace falta la
-// fórmula de haversine). Comparo contra el primer medidor de cada grupo.
-function agruparCercanos(lista, metros) {
-  const grupos = []
-  for (const m of lista) {
-    const c = m.ubicacion?.coordinates
-    if (!c) continue
-    const [lng, lat] = c
-    const grupo = grupos.find(g => {
-      const [glng, glat] = g[0].ubicacion.coordinates
-      const dx = (lng - glng) * 111320 * Math.cos(lat * Math.PI / 180)
-      const dy = (lat - glat) * 110540
-      return dx * dx + dy * dy <= metros * metros
-    })
-    if (grupo) grupo.push(m)
-    else grupos.push([m])
-  }
-  return grupos
-}
-
-// Pin con un circulito rojo y el número de medidores que hay en ese punto.
-// Uso la misma imagen del pin normal (o dorado) y le pego el contador encima.
-const cacheIconosContador = {}
-function iconoConContador(iconoBase, cantidad) {
-  const url = iconoBase.options.iconUrl
-  // Los pines de color de la capa TOES son divIcon con SVG embebido y no
-  // tienen iconUrl, así que no se les puede pegar el contador encima: sin
-  // esta guarda saldría un <img> roto. Hoy no llegan acá (el color se usa
-  // solo cuando hay un medidor visible), pero es un pin menos que romper.
-  if (!url) return iconoBase
-  const clave = url + cantidad
-  if (!cacheIconosContador[clave]) {
-    cacheIconosContador[clave] = L.divIcon({
-      className: '',
-      html: `<div class="pin-grupo"><img src="${url}" alt="" /><span class="pin-grupo-contador">${cantidad}</span></div>`,
-      iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-    })
-  }
-  return cacheIconosContador[clave]
-}
-
-// Lo que va dentro del popup. Si en el punto hay un solo medidor, muestra
-// sus datos directo. Si hay varios, primero la lista para elegir cuál, y
-// al elegir uno sus datos con un botón para volver a la lista.
-function ContenidoPopup(props) {
-  // Ojo con esto: React atiende el click ANTES que Leaflet, y como al tocar
-  // un botón de la lista cambio lo que se muestra, cuando el click le llega
-  // a Leaflet el botón ya no existe. Leaflet cree entonces que tocaste el
-  // mapa y cierra el popup. Cortando el click aquí no le llega nunca.
-  return (
-    <div onClick={(e) => e.stopPropagation()}>
-      <ContenidoPopupInterno {...props} />
-    </div>
-  )
-}
-
-function ContenidoPopupInterno({ grupo, elegido, onElegir, esMobil, renderDetalle }) {
-  const [verLista, setVerLista] = useState(!elegido)
-
-  if (grupo.length === 1) return renderDetalle(grupo[0])
-
-  if (elegido && !verLista) {
-    return (
-      <div>
-        <button type="button" className="btn btn-link btn-sm p-0 mb-1"
-          style={{ fontSize: '0.75rem' }} onClick={() => setVerLista(true)}>
-          ← Ver los {grupo.length} de este punto
-        </button>
-        {renderDetalle(elegido)}
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div className="d-flex justify-content-between align-items-center mb-1">
-        <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {grupo.length} medidores aquí</h6>
-        {!esMobil && <CerrarPopup />}
-      </div>
-      <hr style={{ margin: '0.3rem 0' }} />
-      <div className="d-grid gap-1">
-        {grupo.map(m => (
-          <button key={m._id} type="button"
-            className={`btn btn-sm text-start ${elegido?._id === m._id ? 'btn-warning' : 'btn-outline-secondary'}`}
-            style={{ fontSize: '0.8rem' }}
-            onClick={() => {
-              // si ya era el elegido, solo muestro sus datos; si no, lo
-              // selecciono (el pin se vuelve a montar y abre con sus datos)
-              if (elegido?._id === m._id) setVerLista(false)
-              else onElegir(m)
-            }}>
-            <strong>{m.instalacion}</strong>
-            <span className="text-muted"> · {m.estado}</span>
-            {m.numeroDePoste && <span className="text-muted"> · poste {m.numeroDePoste}</span>}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
 // ese contenedor cambia de tamaño (se muestra/oculta el panel lateral,
@@ -347,11 +190,19 @@ export default function Mapa() {
   // también se pinta dorado para que sepas qué punto tocaste
   const [grupoSeleccionado, setGrupoSeleccionado] = useState(null)
 
-  // selecciono un medidor y suelto el grupo que hubiera tocado antes
-  function seleccionarMedidor(id) {
+  // selecciono un medidor y suelto el grupo que hubiera tocado antes.
+  // Los callbacks que recibe CapaMedidores van con useCallback porque sus
+  // marcadores están memoizados: un callback nuevo en cada render haría que
+  // los ~300 pines se re-renderizaran igual y el memo no serviría de nada.
+  const seleccionarMedidor = useCallback((id) => {
     setGrupoSeleccionado(null)
     setSeleccionadoId(id)
-  }
+  }, [])
+
+  const elegirGrupo = useCallback((idGrupo) => {
+    setSeleccionadoId(null)
+    setGrupoSeleccionado(idGrupo)
+  }, [])
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
@@ -371,6 +222,21 @@ export default function Mapa() {
   // uno encima de otro y no hay forma de tocar los de abajo
   const grupos = useMemo(() => agruparCercanos(medidores, 5), [medidores])
 
+  // Capa TOES: para cada grupo, qué servicios quedan por visitar, con qué
+  // icono y opacidad. Saca del pin lo que el lector ya tomó en el ciclo
+  // vigente; si no queda ninguno, el pin no se dibuja. Nunca se borra nada:
+  // solo cambia la visibilidad.
+  //
+  // Memoizado para que los objetos `vista` mantengan su identidad entre
+  // renders. Si se calcularan dentro del render de la lista, cada uno sería
+  // un objeto nuevo y rompería el memo de los marcadores.
+  const vistas = useMemo(
+    () => grupos.map((g) => vistaDeGrupo(
+      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
+    )),
+    [grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId]
+  )
+
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
     proceso: '', direccion: '', numeroDePoste: '',
@@ -384,7 +250,9 @@ export default function Mapa() {
   useEffect(() => {
     if (ulsActivas.length > 0) cargarMedidores()
     else setMedidores([])
-  }, [ulsActivas])
+    // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
+    // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
+  }, [ulsActivas, cargarMedidores])
 
   async function cargarUls() {
     try {
@@ -395,7 +263,7 @@ export default function Mapa() {
     finally { setCargando(false) }
   }
 
-  async function cargarMedidores() {
+  const cargarMedidores = useCallback(async () => {
     try {
       setCargando(true)
       const promesas = ulsActivas.map(ul => api.get(`/medidores?ul=${ul}&limite=500`))
@@ -405,7 +273,7 @@ export default function Mapa() {
       setMedidores(unicos)
     } catch { setError('Error al cargar los medidores') }
     finally { setCargando(false) }
-  }
+  }, [ulsActivas])
 
   function toggleUl(ul) {
     setUlsActivas(prev =>
@@ -458,7 +326,7 @@ export default function Mapa() {
     } catch { setError('Error al buscar') }
   }
 
-  function abrirFormulario(medidor = null, coords = null) {
+  const abrirFormulario = useCallback((medidor = null, coords = null) => {
     if (medidor) {
       setCampos({
         instalacion:     medidor.instalacion     || '',
@@ -489,7 +357,7 @@ export default function Mapa() {
     setFormulario(true)
     // En móvil ocultamos el panel lateral para dar más espacio
     if (esMobil) setPanelVisible(false)
-  }
+  }, [ulsActivas, esMobil])
 
   function cerrarFormulario() {
     setFormulario(false)
@@ -518,13 +386,13 @@ export default function Mapa() {
     } finally { setGuardando(false) }
   }
 
-  async function handleEliminar(instalacion) {
+  const handleEliminar = useCallback(async (instalacion) => {
     if (!confirm(`¿Eliminar el medidor ${instalacion}?`)) return
     try {
       await api.delete(`/medidores/${instalacion}`)
       await cargarMedidores()
     } catch (err) { alert(err.response?.data?.error || 'Error al eliminar') }
-  }
+  }, [cargarMedidores])
 
   // El backend devuelve el medidor ya actualizado (con la foto nueva
   // adentro), así que solo actualizamos el estado local con eso — no hace
@@ -748,7 +616,17 @@ export default function Mapa() {
               Si dejaba acercar más, en el teléfono aparecían cuadrados grises.
               Con el pin no se pierde precisión: queda en la coordenada exacta
               donde tocas, da igual el zoom. */}
-          <MapContainer center={CENTRO_MAULE} zoom={13} maxZoom={18} style={{ height: '100%', width: '100%' }}>
+          <MapContainer
+            center={CENTRO_MAULE} zoom={13} maxZoom={18}
+            style={{ height: '100%', width: '100%' }}
+            // Acá estuvo markerZoomAnimation={false} y se quitó a propósito.
+            // Ahorra el handler de `zoomanim` por marcador, que con 300 pines
+            // pesaba, pero Leaflet lo implementa poniéndole `leaflet-zoom-hide`
+            // al panel: los pines se OCULTAN durante toda la animación y
+            // reaparecen de golpe. Eso se lee como una falla, no como fluidez.
+            // El culling de CapaMedidores ataca lo mismo sin ese costo: con
+            // ~10-40 pines en pantalla en vez de 300, el handler ya no importa.
+          >
             {/* Selector de capas (arriba a la derecha): calles o satélite.
                 La satelital es de Esri, sirve para ver las casas y ubicar
                 el medidor mejor en terreno. No pide API key. */}
@@ -833,117 +711,24 @@ export default function Mapa() {
               </Marker>
             )}
 
-            {grupos.map(grupo => {
-              const [lng, lat] = grupo[0].ubicacion.coordinates
-              // Capa TOES: saca del pin los servicios que el lector ya tomó en
-              // el ciclo vigente. Si no queda ninguno por visitar, el pin no se
-              // dibuja. Nunca se borra nada: solo cambia la visibilidad.
-              const vista = vistaDeGrupo(
-                grupo, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
-              )
-              if (vista.oculto) return null
-              // Desde acá se trabaja con los visibles y no con el grupo
-              // completo, para que el contador del pin y la lista del popup
-              // digan lo mismo que se puede ir a buscar.
-              const visibles = vista.visibles
-              const elegido = visibles.find(m => m._id === seleccionadoId)
-              const varios = visibles.length > 1
-              const idGrupo = visibles.map(m => m._id).join('-')
-              // dorado si el medidor seleccionado está aquí o si tocaste
-              // este grupo; si no, el color que decidió la capa TOES (estado
-              // de mapeo, o el color de la clave si fue tomado y está solo).
-              // Si son varios, va con el contador.
-              const marcado = !!elegido || grupoSeleccionado === idGrupo
-              const base = marcado ? iconoSeleccionado : vista.icono
-              const icono = varios ? iconoConContador(base, visibles.length) : base
-              return (
-                <Marker
-                  // cambio la key al seleccionarlo para que el marcador se
-                  // vuelva a montar en dorado y abra su popup solo (evento
-                  // "add"); así funciona igual si lo tocaste o lo buscaste
-                  // (lleva el id del elegido para que también se vuelva a montar al
-                  // elegir otro medidor del mismo grupo)
-                  key={elegido ? idGrupo + '-sel-' + elegido._id : (marcado ? idGrupo + '-grupo' : idGrupo)}
-                  position={[lat, lng]}
-                  icon={icono}
-                  // atenuado si todo lo que queda en este pin ya fue tomado
-                  opacity={vista.opacidad}
-                  // encima de los demás pines si están pegados
-                  zIndexOffset={marcado ? 1000 : 0}
-                  eventHandlers={marcado
-                    ? { add: (e) => e.target.openPopup() }
-                    // si es uno solo lo selecciono al tocarlo; si son varios
-                    // marco el grupo (dorado) y se abre la lista para elegir
-                    : (varios
-                      ? { click: () => { setSeleccionadoId(null); setGrupoSeleccionado(idGrupo) } }
-                      : { click: () => seleccionarMedidor(visibles[0]._id) })}
-                >
-                  {/* En escritorio el popup sale a la DERECHA del pin (clase
-                      popup-derecha en index.css) para no tapar los pines de
-                      arriba. En el celular no hay espacio al lado, así que
-                      ahí sigue saliendo arriba como siempre. Los paddings
-                      son para que Leaflet mueva el mapa si el popup no cabe. */}
-                  <Popup
-                    minWidth={220} maxWidth={260}
-                    className={esMobil ? '' : 'popup-derecha'}
-                    closeButton={esMobil}
-                    autoPanPaddingTopLeft={[20, 20]}
-                    autoPanPaddingBottomRight={esMobil ? [20, 20] : [170, 230]}
-                  >
-                    <ContenidoPopup
-                      grupo={visibles}
-                      elegido={elegido}
-                      onElegir={(m) => seleccionarMedidor(m._id)}
-                      esMobil={esMobil}
-                      renderDetalle={(m) => (
-                        <div>
-                          <div className="d-flex justify-content-between align-items-center mb-1">
-                            <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {m.instalacion}</h6>
-                            {!esMobil && <CerrarPopup />}
-                          </div>
-                          <hr style={{ margin: '0.3rem 0' }} />
-                          {vista.toesPorId.has(m._id) && (
-                            <p style={{
-                              margin: '0 0 0.3rem', fontSize: '0.78rem',
-                              color: '#2f855a', fontWeight: 600,
-                            }}>
-                              ✔️ {textoToes(vista.toesPorId.get(m._id), toes.config)}
-                            </p>
-                          )}
-                          <p style={{ margin: 0, fontSize: '0.8rem' }}>
-                            <strong>Estado:</strong> {m.estado}<br />
-                            <strong>Dirección:</strong> {m.direccion || '—'}<br />
-                            <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
-                            <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
-                            {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                              <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
-                            )}
-                            {m.observaciones && <><strong>Obs:</strong> {m.observaciones}<br /></>}
-                          </p>
-                          <div className="d-flex gap-1 mt-2">
-                            <button className="btn btn-primary btn-sm"
-                              onClick={() => abrirFormulario(m)}>✏️ Editar</button>
-                            {usuario.rol === 'admin' && (
-                              <button className="btn btn-danger btn-sm"
-                                onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
-                            )}
-                          </div>
-
-                          {/* Foto directo desde el popup, sin tener que entrar
-                              a editar — así el técnico saca la foto ahí mismo,
-                              parado frente al medidor. */}
-                          <CapturaFoto
-                            instalacion={m.instalacion}
-                            fotosExistentes={m.fotos}
-                            onFotoSubida={() => cargarMedidores()}
-                          />
-                        </div>
-                      )}
-                    />
-                  </Popup>
-                </Marker>
-              )
-            })}
+            {/* Los pines. Toda la lógica de qué se dibuja y qué muestra cada
+                popup vive en CapaMedidores: ahí los marcadores están
+                memoizados y solo se dibujan los del cuadro visible, que es lo
+                que hace que arrastrar y hacer zoom con 300 pines no se trabe. */}
+            <CapaMedidores
+              grupos={grupos}
+              vistas={vistas}
+              seleccionadoId={seleccionadoId}
+              grupoSeleccionado={grupoSeleccionado}
+              esMobil={esMobil}
+              rolUsuario={usuario.rol}
+              toesConfig={toes.config}
+              onElegir={seleccionarMedidor}
+              onElegirGrupo={elegirGrupo}
+              onEditar={abrirFormulario}
+              onEliminar={handleEliminar}
+              onFotoSubida={cargarMedidores}
+            />
           </MapContainer>
         </div>
 
