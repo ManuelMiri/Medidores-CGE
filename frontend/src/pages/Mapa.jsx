@@ -1,6 +1,6 @@
 // src/pages/Mapa.jsx
 import { useEffect, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
 import api from '../services/api'
@@ -183,6 +183,23 @@ function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, gu
       )}
     </>
   )
+}
+
+// Guardo la última capa elegida (calles/satélite) para que al volver a
+// abrir la app no haya que cambiarla de nuevo cada vez
+const CLAVE_CAPA = 'capaMapa'
+function leerCapaGuardada() {
+  try { return localStorage.getItem(CLAVE_CAPA) || 'calles' } catch { return 'calles' }
+}
+const capaInicial = leerCapaGuardada()
+
+function RecordarCapa() {
+  useMapEvents({
+    baselayerchange: (e) => {
+      try { localStorage.setItem(CLAVE_CAPA, e.name === 'Satélite' ? 'satelite' : 'calles') } catch { /* sin storage, da igual */ }
+    },
+  })
+  return null
 }
 
 export default function Mapa() {
@@ -571,20 +588,52 @@ export default function Mapa() {
           )}
 
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
-            <TileLayer
-              // Antes usaba CARTO, pero ahora sus tiles piden API key y el mapa
-              // salía todo con "API KEY REQUIRED". Me cambié a los tiles de
-              // OpenStreetMap directo, que no piden key (para el uso que le
-              // damos, un equipo chico, está dentro de su política).
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-              maxZoom={19}
-              // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
-              // pixel que arrastras satura la conexión y todo se siente
-              // más lento. Con esto, solo pide tiles nuevos cuando sueltas
-              // el mapa (terminaste de moverlo), no mientras lo arrastras.
-              updateWhenIdle={true}
-            />
+            {/* Selector de capas (arriba a la derecha): calles o satélite.
+                La satelital es de Esri, sirve para ver las casas y ubicar
+                el medidor mejor en terreno. No pide API key. */}
+            <LayersControl position="topright">
+              <LayersControl.BaseLayer name="Calles" checked={capaInicial !== 'satelite'}>
+                <TileLayer
+                  // Antes usaba CARTO, pero ahora sus tiles piden API key y el mapa
+                  // salía todo con "API KEY REQUIRED". Me cambié a los tiles de
+                  // OpenStreetMap directo, que no piden key (para el uso que le
+                  // damos, un equipo chico, está dentro de su política).
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  maxZoom={19}
+                  // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
+                  // pixel que arrastras satura la conexión y todo se siente
+                  // más lento. Con esto, solo pide tiles nuevos cuando sueltas
+                  // el mapa (terminaste de moverlo), no mientras lo arrastras.
+                  updateWhenIdle={true}
+                />
+              </LayersControl.BaseLayer>
+
+              <LayersControl.BaseLayer name="Satélite" checked={capaInicial === 'satelite'}>
+                {/* La foto sola no tiene nombres de calles, así que encima le
+                    pongo las capas de referencia de Esri (calles y lugares)
+                    para no perderse en sectores rurales */}
+                <LayerGroup>
+                  <TileLayer
+                    attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    maxZoom={19}
+                    updateWhenIdle={true}
+                  />
+                  <TileLayer
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                    maxZoom={19}
+                    updateWhenIdle={true}
+                  />
+                  <TileLayer
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                    maxZoom={19}
+                    updateWhenIdle={true}
+                  />
+                </LayerGroup>
+              </LayersControl.BaseLayer>
+            </LayersControl>
+            <RecordarCapa />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <InvalidarTamano />
             <CapturarClick

@@ -38,6 +38,16 @@ export default defineConfig({
             },
           },
           {
+            // tiles satelitales de Esri, mismo trato que los de OSM
+            urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tiles-satelite',
+              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
             urlPattern: /\/api\/.*/,
             handler: 'NetworkOnly',
           },
