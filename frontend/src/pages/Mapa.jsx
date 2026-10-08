@@ -1,5 +1,5 @@
 // src/pages/Mapa.jsx
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import L from 'leaflet'
@@ -45,6 +45,23 @@ const iconos = {
     iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
   }),
 }
+
+// Icono para el medidor que encontraste con el buscador: más grande y de
+// otro color (dorado), para que salte a la vista entre todos los demás
+const iconoResaltado = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [38, 62], iconAnchor: [19, 62], popupAnchor: [1, -54], shadowSize: [62, 62],
+})
+
+// Un círculo que late debajo del pin encontrado (la animación está en
+// index.css, clase .pulso-medidor)
+const iconoPulso = L.divIcon({
+  className: '',
+  html: '<div class="pulso-medidor"></div>',
+  iconSize: [60, 60],
+  iconAnchor: [30, 30],
+})
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
 // ese contenedor cambia de tamaño (se muestra/oculta el panel lateral,
@@ -213,6 +230,8 @@ export default function Mapa() {
   const [filtroUl, setFiltroUl]         = useState('')
   const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
   const [centroMapa, setCentroMapa]     = useState(null)
+  // _id del medidor encontrado con el buscador, para resaltarlo en el mapa
+  const [encontradoId, setEncontradoId] = useState(null)
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
@@ -281,6 +300,7 @@ export default function Mapa() {
       if (candidatos.length === 1) {
         const [lng, lat] = candidatos[0].ubicacion?.coordinates || []
         if (lat && lng) setCentroMapa([lat, lng])
+        setEncontradoId(candidatos[0]._id)
         return
       }
       if (candidatos.length > 1) {
@@ -298,6 +318,12 @@ export default function Mapa() {
         if (m.ubicacion?.coordinates) {
           const [lng, lat] = m.ubicacion.coordinates
           setCentroMapa([lat, lng])
+        }
+        setEncontradoId(m._id)
+        // Si el medidor es de una UL que no tienes marcada, la marco yo,
+        // porque si no su pin no está cargado y no hay nada que resaltar
+        if (m.unidadDeLectura && !ulsActivas.includes(m.unidadDeLectura)) {
+          setUlsActivas((prev) => [...prev, m.unidadDeLectura])
         }
       } else { alert('No se encontró ningún medidor') }
     } catch { setError('Error al buscar') }
@@ -679,9 +705,23 @@ export default function Mapa() {
             {medidores.map(m => {
               if (!m.ubicacion?.coordinates) return null
               const [lng, lat] = m.ubicacion.coordinates
-              const icono = iconos[m.estado] || iconos.pendiente
+              const resaltado = m._id === encontradoId
+              const icono = resaltado ? iconoResaltado : (iconos[m.estado] || iconos.pendiente)
               return (
-                <Marker key={m._id} position={[lat, lng]} icon={icono}>
+                <Fragment key={m._id}>
+                {resaltado && (
+                  <Marker position={[lat, lng]} icon={iconoPulso} interactive={false} zIndexOffset={900} />
+                )}
+                <Marker
+                  // cambio la key al resaltarlo para que el marcador se vuelva
+                  // a montar y se abra su popup solo (evento "add")
+                  key={resaltado ? m._id + '-resaltado' : m._id}
+                  position={[lat, lng]}
+                  icon={icono}
+                  // encima de todos los demás pines, aunque estén pegados
+                  zIndexOffset={resaltado ? 1000 : 0}
+                  eventHandlers={resaltado ? { add: (e) => e.target.openPopup() } : undefined}
+                >
                   <Popup minWidth={220} maxWidth={260}>
                     <div>
                       <h6 style={{ fontSize: '0.9rem' }} className="mb-1">📍 {m.instalacion}</h6>
@@ -716,6 +756,7 @@ export default function Mapa() {
                     </div>
                   </Popup>
                 </Marker>
+                </Fragment>
               )
             })}
           </MapContainer>
