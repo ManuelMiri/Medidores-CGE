@@ -63,10 +63,11 @@ frontend/
 │       ├── MainActivity.java      # registra el plugin de TOES
 │       └── toes/ToesPlugin.java   # lee /TOES por SAF, solo lectura
 └── src/
-    ├── pages/Mapa.jsx      # el mapa; ~990 líneas, es el archivo central del frontend
+    ├── pages/Mapa.jsx      # el mapa; ~775 líneas, es el archivo central del frontend
     ├── pages/Login.jsx
     ├── components/
     │   ├── PanelToes.jsx       # bloque "Lecturas de TOES" del panel lateral
+    │   ├── CapaMedidores.jsx   # los pines: memoizados y con culling por viewport
     │   ├── CargaKml.jsx, PreviewImportacion.jsx, CapturaFoto.jsx,
     │   └── MiUbicacion.jsx, GestionUsuarios.jsx
     ├── hooks/useToes.js        # une parser + almacén + mapa
@@ -77,6 +78,8 @@ frontend/
     │   ├── toesNativo.js       # puente con el plugin nativo y bucle de lectura
     │   ├── toesStore.js        # persistencia en IndexedDB
     │   ├── vistaMarcador.js    # decide ocultar/atenuar/colorear cada marcador
+    │   ├── agrupar.js          # junta los medidores del mismo punto (+ 9 tests)
+    │   ├── iconosMapa.js       # los pines, bundleados (no traidos de la red)
     │   └── __fixtures__/logSintetico.js  # generador de logs falsos para los tests
     ├── config/clavesToes.json  # configuración editable de la integración
     ├── context/AuthContext.jsx
@@ -186,6 +189,63 @@ se limpian los datos del WebView se pierde el URI guardado en IndexedDB pero el 
 sigue vivo, así que se le pregunta al plugin en vez de confiar en lo guardado.
 
 
+## Rendimiento del mapa
+
+El dato que ordena todo esto: en Atlas hay **1.765 medidores** repartidos en 8 ULs, de 83 a 302 cada
+una. (Los "~85" del principio de este README son los medidores *sin registrar* que motivaron la app, no
+el dataset.) El frontend pide `limite=500` por UL activa, así que con una ruta cargada hay entre 170 y
+300 pines, y hasta 1.765 si se activan todas.
+
+**Los props de `Marker` tienen que ser estables.** react-leaflet compara por identidad. Un
+`position={[lat, lng]}` escrito como literal en el render da siempre distinto, y entonces cada
+marcador ejecuta `marker.setLatLng()` — una escritura de layout — en cada render; un
+`eventHandlers={{...}}` literal hace que se desenganchen y vuelvan a enganchar sus listeners. Con 300
+pines son ~600 operaciones de DOM por cada cambio de estado de `Mapa`, aunque no tenga nada que ver con
+el mapa (escribir en el buscador, abrir el panel). Por eso:
+
+- `utils/agrupar.js` devuelve `position` ya creada, una vez por grupo.
+- Las `vista` de la capa TOES se calculan en un `useMemo`, así mantienen su identidad.
+- Los callbacks que bajan a `CapaMedidores` van con `useCallback`. Sin eso el `memo` de los marcadores
+  no sirve de nada.
+
+**Culling por viewport.** `CapaMedidores` solo dibuja los pines del cuadro visible más medio viewport de
+margen, así que en el DOM hay ~10-40 en vez de 300. El cuadro se recalcula en `moveend`, `zoomend` y
+también en `resize`: al montar, el div del mapa a veces no tiene su tamaño final y `getBounds()`
+devolvería un cuadro degenerado que dejaría todos los pines afuera.
+
+El medidor elegido **se dibuja siempre**, aunque caiga fuera del cuadro. Al buscar uno se lo selecciona
+antes de que el mapa termine de moverse, y es el montaje de su marcador lo que abre el popup; si el
+culling lo dejara afuera en ese instante, buscar no mostraría nada.
+
+**Los iconos van bundleados** (`utils/iconosMapa.js`). Antes los de color salían de
+`raw.githubusercontent.com` y la sombra de `unpkg.com`: dos hosts que no son CDN de producción, fuera
+del `runtimeCaching` del service worker y en el camino crítico del primer dibujado. En terreno con señal
+mala los pines podían tardar o no aparecer. Tampoco llevan `shadowUrl`, que era un `<img>` **extra por
+marcador**.
+
+### Lo que se probó y se descartó
+
+- **`markerZoomAnimation={false}`**: ahorra el handler de `zoomanim` por marcador, pero Leaflet lo
+  implementa poniéndole `leaflet-zoom-hide` al panel de marcadores, o sea que **los pines se ocultan
+  durante toda la animación de zoom** y reaparecen de golpe. Se lee como una falla, no como fluidez. El
+  culling ataca lo mismo sin ese costo. Queda comentado en el `MapContainer`.
+
+### Lo que falta
+
+- **En el APK no hay caché de tiles.** El service worker se registra solo en el navegador
+  (`main.jsx`), por una razón válida — dentro del WebView Android conserva el storage y seguiría
+  sirviendo el bundle precacheado viejo después de instalar una versión nueva — pero con eso se va
+  también el `runtimeCaching` de tiles (1.500 tiles × 30 días de OSM y Esri). En el APK los tiles
+  dependen solo del caché HTTP del WebView, así que entrar a una zona ya vista los vuelve a bajar. En
+  terreno rural es probablemente lo que más se nota, y la salida sería un service worker para el APK
+  que cachee tiles **sin** precachear el bundle.
+- **La capa satelital son 4 `TileLayer` apilados**: la foto de respaldo z15, la foto buena y dos de
+  referencia de Esri. Panear en satélite pide y dibuja 4 capas de tiles. Antes de sacar alguna hay que
+  confirmar en terreno si el respaldo z15 llega a actuar en algún sector.
+- **El techo es la arquitectura.** Google Maps usa tiles vectoriales sobre GPU; esto son tiles raster y
+  marcadores de DOM. Esa diferencia no se cierra sin cambiar de motor (MapLibre GL).
+
+
 ## Autenticación y autorización
 
 - El login genera un JWT que el cliente envía en el header `Authorization: Bearer <token>`.
@@ -250,7 +310,7 @@ cd backend
 npm test
 ```
 
-**Frontend — 64 tests** (63 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental y 12 de la visibilidad de los pines. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 73 tests** (72 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental, 12 de la visibilidad de los pines y 9 del agrupado por punto. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
@@ -357,7 +417,7 @@ La distribución es por **sideload interno**, no Play Store. Conviene agregar un
 - **Nunca commitear logs reales de TOES.** Para los tests existe el fixture sintético.
 - **No subir el contenido del log a ningún servidor.** Si aparece la tentación de un endpoint para "sincronizar lecturas", es exactamente lo que la regla de privacidad prohíbe.
 - **No raspar tiles de Google** (`mt{s}.google.com/vt/`): viola los términos de Google Maps. El mapa usa OpenStreetMap y satelital de Esri.
-- El archivo central del frontend es `src/pages/Mapa.jsx` (~990 líneas): ahí viven el mapa, el panel lateral y el render de pines. Los pines se agrupan por punto (`agruparCercanos`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
+- El archivo central del frontend es `src/pages/Mapa.jsx` (~775 líneas): ahí viven el mapa y el panel lateral. **El render de los pines ya no está ahí**, está en `components/CapaMedidores.jsx` por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
 
 ## Decisiones de diseño (resumen)
 
