@@ -27,10 +27,12 @@ export default defineConfig({
         // viejas o rotas.
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/[abcd]\.basemaps\.cartocdn\.com\/.*/,
+            // ojo: cambié el nombre del caché para no seguir sirviendo los tiles
+            // viejos de CARTO que quedaron guardados con el "API KEY REQUIRED"
+            urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tiles-mapa',
+              cacheName: 'tiles-osm',
               expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 días
               cacheableResponse: { statuses: [0, 200] },
             },

@@ -572,12 +572,13 @@ export default function Mapa() {
 
           <MapContainer center={CENTRO_MAULE} zoom={13} style={{ height: '100%', width: '100%' }}>
             <TileLayer
-              // CARTO en vez del tile.openstreetmap.org gratuito: mismo mapa
-              // base, pero servido desde un CDN pensado para producción.
-              attribution='&copy; <a href="https://www.openstreetmap.org">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-              subdomains="abcd"
-              maxZoom={20}
+              // Antes usaba CARTO, pero ahora sus tiles piden API key y el mapa
+              // salía todo con "API KEY REQUIRED". Me cambié a los tiles de
+              // OpenStreetMap directo, que no piden key (para el uso que le
+              // damos, un equipo chico, está dentro de su política).
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maxZoom={19}
               // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
               // pixel que arrastras satura la conexión y todo se siente
               // más lento. Con esto, solo pide tiles nuevos cuando sueltas
