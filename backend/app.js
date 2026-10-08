@@ -7,7 +7,11 @@ const app = express()
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://medidores-cge.vercel.app'
+    'https://medidores-cge.vercel.app',
+    // Origen del WebView de la app Android (Capacitor con androidScheme https).
+    // Sin esto el APK no pasa ni el login: el token va como header
+    // Authorization, eso dispara preflight, y el preflight se rechaza.
+    'https://localhost'
   ]
 }))
 app.use(express.json())
