@@ -23,7 +23,15 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
   const [aviso, setAviso] = useState(null)
   const [mostrarSinPunto, setMostrarSinPunto] = useState(false)
 
-  const { porUl, indice, verTomados, setVerTomados, procesando, invalidos, ultimaRevision } = toes
+  const {
+    porUl, indice, verTomados, setVerTomados, procesando, invalidos, ultimaRevision,
+    nativo, carpeta, vigilando, errorNativo, listo,
+  } = toes
+
+  async function handleCarpeta() {
+    const uri = await (carpeta ? toes.cambiarCarpeta() : toes.elegirCarpeta())
+    if (uri) setAviso({ tipo: 'ok', texto: 'Carpeta conectada. Se relee sola cada 5 s.' })
+  }
 
   async function handleArchivos(e) {
     const archivos = e.target.files
@@ -50,11 +58,53 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
         📋 Lecturas de TOES
       </p>
 
+      {/* En el APK la carpeta se lee sola; en el navegador no hay forma de
+          pedirla (Chrome Android no expone showDirectoryPicker), así que ahí
+          el único camino es elegir los archivos a mano. */}
+      {/* `listo` evita el parpadeo: hasta que no se cargó el estado guardado no
+          se sabe si ya hay una carpeta concedida, y ofrecer conectarla cuando
+          ya está conectada se ve como un error. */}
+      {nativo && listo && !carpeta && (
+        <>
+          <button
+            className="btn btn-sm btn-primary w-100"
+            onClick={handleCarpeta}>
+            📁 Conectar carpeta TOES
+          </button>
+          <p style={{ fontSize: '0.72rem', color: '#718096', margin: '0.35rem 0 0' }}>
+            Se pide una sola vez. Elige la carpeta <code>TOES</code> del
+            almacenamiento interno: la app solo la lee, nunca escribe en ella.
+          </p>
+        </>
+      )}
+
+      {vigilando && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          background: '#f0fff4', border: '1px solid #c6f6d5', borderRadius: '4px',
+          padding: '0.35rem 0.5rem', fontSize: '0.76rem', color: '#276749',
+        }}>
+          <span aria-hidden="true">👁</span>
+          <span style={{ flex: 1 }}>Leyendo la carpeta TOES sola</span>
+          <button
+            className="btn btn-link p-0"
+            style={{ fontSize: '0.7rem' }}
+            onClick={handleCarpeta}>
+            cambiar
+          </button>
+        </div>
+      )}
+
       <button
-        className="btn btn-sm btn-outline-primary w-100"
+        className={`btn btn-sm w-100 ${vigilando ? 'btn-outline-secondary' : 'btn-outline-primary'}`}
+        style={vigilando ? { marginTop: '0.4rem', fontSize: '0.72rem' } : undefined}
         disabled={procesando}
         onClick={() => archivoRef.current?.click()}>
-        {procesando ? 'Leyendo…' : '📂 Actualizar desde TOES'}
+        {procesando
+          ? 'Leyendo…'
+          : vigilando
+            ? 'Elegir un log a mano'
+            : '📂 Actualizar desde TOES'}
       </button>
       <input
         ref={archivoRef}
@@ -64,9 +114,17 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
         onChange={handleArchivos}
         style={{ display: 'none' }}
       />
-      <p style={{ fontSize: '0.72rem', color: '#718096', margin: '0.35rem 0 0' }}>
-        Elige los <code>Log_TOES-*.txt</code> de la carpeta TOES del teléfono.
-      </p>
+      {!vigilando && (
+        <p style={{ fontSize: '0.72rem', color: '#718096', margin: '0.35rem 0 0' }}>
+          Elige los <code>Log_TOES-*.txt</code> de la carpeta TOES del teléfono.
+        </p>
+      )}
+
+      {errorNativo && (
+        <p style={{ fontSize: '0.75rem', marginTop: '0.4rem', color: '#c53030' }}>
+          {errorNativo}
+        </p>
+      )}
 
       {aviso && (
         <p style={{

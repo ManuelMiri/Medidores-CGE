@@ -10,8 +10,8 @@ El backend además fue usado como base para el encargo de la Unidad 2 del ramo P
 |---|---|---|
 | Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción |
 | Frontend web / PWA | Vercel (`https://medidores-cge.vercel.app`) | En producción |
-| APK Android (Capacitor) | `frontend/android/`, sideload interno | Compila e inicia sesión contra producción; falta el acceso automático a `/TOES` |
-| Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Lógica completa; lectura automática de `/TOES` **pendiente** |
+| APK Android (Capacitor) | `frontend/android/`, sideload interno | Lee la carpeta `/TOES` sola cada 5 s; falta confirmarlo en terreno |
+| Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Completa: parser, visibilidad del mapa y lectura automática de `/TOES` en el APK |
 
 Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end.
 
@@ -57,7 +57,11 @@ frontend/
 ├── capacitor.config.json   # appId cl.mla.maule, webDir dist, androidScheme https
 ├── .env.native             # VITE_API_URL absoluta para el build del APK
 ├── vite.config.js          # PWA con injectRegister: false (el SW se registra a mano)
-├── android/                # proyecto Android generado por Capacitor (fuera de git y de Vercel)
+├── scripts/compilarApk.mjs # busca un JDK 21 y corre gradlew (sirve en cualquier shell)
+├── android/                # proyecto Android (Capacitor). Versionado; fuera de Vercel
+│   └── app/src/main/java/cl/mla/maule/
+│       ├── MainActivity.java      # registra el plugin de TOES
+│       └── toes/ToesPlugin.java   # lee /TOES por SAF, solo lectura
 └── src/
     ├── pages/Mapa.jsx      # el mapa; ~990 líneas, es el archivo central del frontend
     ├── pages/Login.jsx
@@ -68,7 +72,9 @@ frontend/
     ├── hooks/useToes.js        # une parser + almacén + mapa
     ├── utils/
     │   ├── toesParser.js       # parseo de los logs de TOES (lógica pura, testeada)
-    │   ├── toesParser.test.js  # 19 tests
+    │   ├── toesParser.test.js  # 25 tests
+    │   ├── cursorToes.js       # cursor de lectura incremental en bytes (+ 27 tests)
+    │   ├── toesNativo.js       # puente con el plugin nativo y bucle de lectura
     │   ├── toesStore.js        # persistencia en IndexedDB
     │   ├── vistaMarcador.js    # decide ocultar/atenuar/colorear cada marcador
     │   └── __fixtures__/logSintetico.js  # generador de logs falsos para los tests
@@ -120,23 +126,65 @@ Esto tiene una consecuencia de arquitectura importante: **la funcionalidad centr
 
 ### Qué está hecho y qué falta
 
-Hecho y verificable hoy en el navegador:
+Hecho (lo que no dice "APK" se puede verificar en el navegador):
 
 - Parser, almacén en IndexedDB, hook, panel lateral y lógica de visibilidad del mapa.
 - Carga manual de logs con `<input type="file" multiple>` (los archivos se ordenan por nombre, que es orden cronológico).
 - Contador tomados/total por UL con barra de progreso, ciclo vigente, insignia CERRADA / cierre parcial, botón "Nuevo ciclo" (con confirmación), interruptor "Ver tomados" (atenuados) y la lista de tomados sin punto en el mapa.
 - **Nunca se borra** un punto, una foto, una descripción ni una etiqueta: solo cambia la visibilidad.
+- **Lectura automática de `/TOES` en el APK** por el Storage Access Framework. El lector elige la carpeta una sola vez y desde ahí la app la relee sola cada 5 s, sin volver a pedir nada. Ver "Lectura automática de /TOES" más abajo.
 - **Los pines van agrupados por punto** (`agruparCercanos`, 5 m), así que la decisión es por grupo y no por medidor: el pin se oculta solo cuando no queda ningún servicio por visitar, el contador cuenta los que quedan (no los que hay), y se atenúa solo si todo lo que queda en ese pin ya fue tomado. Un medidor elegido a propósito — tocado o buscado — se muestra aunque TOES lo haya tomado; sin esa excepción, buscar una instalación ya tomada no mostraría nada y el buscador parecería roto.
 
 Pendiente:
 
-- **El plugin nativo en Kotlin para el Storage Access Framework** (`ACTION_OPEN_DOCUMENT_TREE` + `takePersistableUriPermission` + `DocumentFile`) y el **sondeo automático cada 5 s**. Sin eso el APK funciona, pero el lector tiene que elegir el archivo a mano con el selector de Android. Lo que hay valida 9 de los 11 criterios de aceptación; los 2 que faltan (permiso persistente de `/TOES` y que el punto desaparezca en 5-10 s) requieren el plugin.
-  - El SAF **no necesita ningún permiso en el manifest** — el manifest fusionado del APK actual declara solo `INTERNET`. No hace falta `MANAGE_EXTERNAL_STORAGE`.
-  - `@capacitor/filesystem` no sirve: solo accede a directorios propios de la app, no al almacenamiento compartido.
-  - Una PWA pura no puede hacerlo: Chrome en Android no expone `showDirectoryPicker()`, solo el Origin Private File System, que es un sandbox.
+- **Probar los 2 últimos criterios de aceptación en el teléfono.** El código de los 11 está escrito y compilado, pero el permiso persistente de `/TOES` y el "el punto desaparece en 5-10 s" solo se pueden dar por buenos con TOES real guardando un servicio. Todo lo demás está cubierto por tests.
 - **Etiquetas anticipadas** (sitio eriazo / sin empalme / no encontrado) para avisarle al lector qué clave elegir en TOES. Es la única parte que sí toca el backend, porque las etiquetas son datos propios de la app y se comparten entre usuarios: campo `etiquetas: [String]` en `models/Medidor.js` y en la whitelist `camposPermitidos` de `rutas/medidores.js`. **Nunca cambiar etiquetas automáticamente.**
 - **Una sola etiqueta anticipada sigue sin clave que sugerir.** "Sitio eriazo" y "No encontrado" ya apuntan a las claves 26 y 02. "Sin empalme" no: la clave 16 existe pero está inactiva, así que hasta que CGE diga con cuál se reemplaza, esa etiqueta no sugiere ninguna.
 - **Crear una cuenta `lector`** con `unidadesLectura: ["E3505704"]` para probar el camino de permisos real.
+
+### Lectura automática de /TOES
+
+El plugin nativo vive en `frontend/android/app/src/main/java/cl/mla/maule/toes/ToesPlugin.java` y se
+registra a mano en `MainActivity.java` (no es un paquete npm). El lado JS está en
+`src/utils/toesNativo.js`, y `src/hooks/useToes.js` arma el bucle.
+
+**Por qué hace falta código nativo.** Una PWA pura no puede leer esa carpeta: Chrome en Android no
+expone `showDirectoryPicker()`, solo el Origin Private File System, que es un sandbox. Y
+`@capacitor/filesystem` tampoco sirve, porque solo alcanza directorios propios de la app, no el
+almacenamiento compartido. El Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE` +
+`takePersistableUriPermission` + `DocumentFile`) resuelve las dos cosas y **no necesita ningún permiso
+en el manifest**: el del APK declara solo `INTERNET`, sin `MANAGE_EXTERNAL_STORAGE`.
+
+**Está en Java y no en Kotlin.** El proyecto Android que genera Capacitor es Java puro; meter Kotlin
+obligaba a sumar su plugin de Gradle y la stdlib al APK, y el SAF es exactamente la misma API desde los
+dos lenguajes.
+
+**Solo lectura, y a propósito.** El log es la fuente de verdad de la lectura del mes de CGE: si se le
+escribe encima se puede arruinar una ruta ya tomada. El plugin solo lista y abre en modo `"r"`; no hay
+una sola llamada que modifique (ni `delete`, ni `renameTo`, ni `"w"`). El contenido tampoco sale del
+teléfono: se lee, se extrae lo que el mapa necesita y el texto se descarta.
+
+**El cursor va en bytes, no en caracteres.** Es la parte que se equivoca en silencio, así que vive
+aparte en `utils/cursorToes.js` con 27 tests. El parser cuenta caracteres, el archivo se mide en bytes y
+no coinciden: el log real de prueba tiene 761.639 bytes y 761.541 caracteres — 98 de diferencia por los
+acentos. Mezclar las dos escalas desincroniza la lectura incremental y puede partir un carácter en dos,
+rompiendo el `JSON.parse` del bloque siguiente. Los trozos se cortan siempre en un salto de línea, que
+en UTF-8 nunca cae dentro de un carácter multibyte.
+
+Los cursores guardados por versiones anteriores estaban en caracteres: se descartan una vez
+(`unidadOffset`) y el archivo se relee entero. Releer es inofensivo — el estado se deduplica por
+UL + ciclo + instalación y los cierres por UL + tipo + fecha.
+
+**Lo que de verdad hace desaparecer el punto es volver a la app.** Mientras el lector está en TOES
+nuestro WebView queda en segundo plano y Android congela los timers, así que el intervalo de 5 s no
+corre. Por eso además se lee en el evento `appStateChange` de Capacitor: al volver al mapa la lectura
+es inmediata. El intervalo cubre el caso de tener las dos apps a la vista.
+
+Si el lector revoca el permiso desde los ajustes de Android, la siguiente lectura falla con
+`SIN_PERMISO` y el panel vuelve a ofrecer "Conectar carpeta TOES". Al revés también está cubierto: si
+se limpian los datos del WebView se pierde el URI guardado en IndexedDB pero el permiso de Android
+sigue vivo, así que se le pregunta al plugin en vez de confiar en lo guardado.
+
 
 ## Autenticación y autorización
 
@@ -202,7 +250,7 @@ cd backend
 npm test
 ```
 
-**Frontend — 31 tests** (30 pasan, 1 se omite): 19 del parser de TOES y 12 de la visibilidad de los pines. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 64 tests** (63 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental y 12 de la visibilidad de los pines. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
@@ -273,24 +321,22 @@ NODE_ENV=production npm start      # producción (cluster activado)
 
 ## Compilar el APK
 
-El APK y la web salen del **mismo código**. Lo único que cambia es de dónde sale el texto del log: en el navegador lo elige el usuario, en el APK lo leerá el plugin nativo. Se distingue con `Capacitor.isNativePlatform()`.
+El APK y la web salen del **mismo código**. Lo único que cambia es de dónde sale el texto del log: en el navegador lo elige el usuario, en el APK lo lee el plugin nativo desde `/TOES`. Se distingue con `Capacitor.isNativePlatform()`.
 
 ```bash
 cd frontend
 npm run android:apk
-# -> android/app/build/outputs/apk/debug/app-debug.apk  (~4,2 MB)
+# -> android/app/build/outputs/apk/debug/app-debug.apk  (~7,3 MB)
 ```
 
-Scripts disponibles: `android:sync` (build nativo + `cap sync`), `android:apk` (lo anterior + `gradlew assembleDebug`), `android:open` (abrir en Android Studio).
+Scripts disponibles: `android:sync` (build nativo + `cap sync`), `android:apk` (lo anterior + `scripts/compilarApk.mjs`, que busca un JDK y corre `gradlew assembleDebug`), `android:open` (abrir en Android Studio).
 
 Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/`targetSdk 36`.
 
 ### Requisitos y trampas conocidas
 
-- **Capacitor 8 exige JDK 21.** Con JDK 17 el build muere con `error: invalid source release: 21`. Android Studio trae uno embebido:
-  ```powershell
-  $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-  ```
+- **Capacitor 8 exige JDK 21**, y con un JDK 17 en el `PATH` el build muere en `:capacitor-android:compileDebugJavaWithJavac` con `error: invalid source release: 21` — un mensaje que no menciona los JDK. De eso ya se encarga `scripts/compilarApk.mjs`: busca uno 21 o mayor (`JAVA_HOME`, `~/.jdks`, el `jbr` que trae Android Studio, `Program Files/Java`…), imprime cuál eligió y se lo pasa a Gradle. Si no encuentra ninguno, lo dice y explica cómo apuntarlo con `JAVA_HOME`.
+  - No se usa `org.gradle.java.home` en `gradle.properties` porque ese archivo está versionado y fijaría la ruta de **una** máquina, rompiéndoselo al resto del equipo.
 - **`android/local.properties` necesita barras normales**, no invertidas: Java trata `\` como escape en un archivo `.properties` y el build falla con `El nombre de archivo, el nombre de directorio o la sintaxis de la etiqueta del volumen no son correctos`.
   ```
   sdk.dir=C:/Users/<usuario>/AppData/Local/Android/Sdk
@@ -299,7 +345,7 @@ Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/
 - **El APK necesita el CORS de `https://localhost` en el backend**, ya desplegado. Si alguna vez se cae ese origen de la lista, el APK deja de poder iniciar sesión: el preflight vuelve `204` sin `access-control-allow-origin` y no hay mensaje de error que lo explique.
 - `frontend/.env.native` tiene que llevar la API con **URL absoluta**. Una ruta relativa (`/api`) apuntaría al servidor local de Capacitor y daría 404.
 - El service worker se registra **solo en navegador** (`main.jsx`), con `injectRegister: false` en `vite.config.js`. Dentro del WebView, Android conserva el storage entre actualizaciones y el SW seguiría sirviendo el bundle viejo después de instalar una versión nueva.
-- `frontend/android/` está fuera de git y de Vercel (`.vercelignore`), así que el despliegue web no cambia.
+- `frontend/android/` **sí está versionado** (ahí vive el plugin nativo de TOES, que es código fuente), pero queda fuera de Vercel por `.vercelignore`, así que el despliegue web no cambia. Lo que no entra al repo son las salidas del build: el `.gitignore` que genera Capacitor ya excluye `build/`, `*.apk`, `local.properties`, los `capacitor.*.json` generados y los assets web copiados.
 - **La firma del APK nunca se commitea** (`*.jks`, `*.keystore`, `keystore.properties` están en `.gitignore`). Si se filtra, cualquiera puede publicar una actualización falsa; si se pierde, no hay forma de actualizar los APK ya instalados y hay que reinstalar en todos los teléfonos.
 
 La distribución es por **sideload interno**, no Play Store. Conviene agregar una verificación de versión contra el backend que le avise al técnico cuando haya un APK nuevo, porque el sideload no se actualiza solo.
