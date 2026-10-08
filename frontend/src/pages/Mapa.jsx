@@ -600,7 +600,10 @@ export default function Mapa() {
                   // damos, un equipo chico, está dentro de su política).
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  maxZoom={19}
+                  // todas las capas con techo 20, así al cambiar entre
+                  // Calles y Satélite no te cambia el zoom
+                  maxNativeZoom={19}
+                  maxZoom={20}
                   // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
                   // pixel que arrastras satura la conexión y todo se siente
                   // más lento. Con esto, solo pide tiles nuevos cuando sueltas
@@ -614,37 +617,43 @@ export default function Mapa() {
                     pongo las capas de referencia de Esri (calles y lugares)
                     para no perderse en sectores rurales */}
                 <LayerGroup>
-                  {/* Truco de dos capas para que nunca se vea gris:
-                      1) Abajo, la foto de Esri pedida solo hasta zoom 15,
-                         que existe en todo Chile. Leaflet la agranda
-                         cuando haces más zoom (se ve pixelada, pero se ve).
-                      2) Arriba, la misma foto en máxima calidad. Con
-                         blankTile=false, donde Esri no tiene foto devuelve
-                         error en vez del cuadro gris, ese pedazo queda
-                         transparente y se ve la capa de abajo. */}
+                  {/* Probé con medidores reales de las 6 ULs: Esri tiene foto
+                      real hasta z18 en toda la zona, y en z19 devuelve el
+                      cuadro gris ("Map data not yet available"). Por eso pido
+                      fotos hasta z18 y de ahí en adelante Leaflet agranda la
+                      de z18 (el pin igual queda en la coordenada exacta del
+                      click, solo se ve menos nítido).
+
+                      Por si algún sector raro no tiene ni z18, dejo dos capas:
+                      1) Abajo, la foto hasta z15, que existe en todo Chile.
+                      2) Arriba, la foto buena. Con blankTile=false, donde no
+                         hay foto Esri debería mandar error en vez del gris,
+                         y ahí se ve la de abajo. */}
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                     maxNativeZoom={15}
-                    maxZoom={19}
+                    maxZoom={20}
                     updateWhenIdle={true}
                   />
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
-                    maxNativeZoom={19}
-                    maxZoom={19}
+                    maxNativeZoom={18}
+                    maxZoom={20}
                     updateWhenIdle={true}
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={17}
-                    maxZoom={19}
+                    // las capas de nombres sí llegan hasta z19
+                    maxNativeZoom={19}
+                    maxZoom={20}
                     updateWhenIdle={true}
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={17}
-                    maxZoom={19}
+                    // las capas de nombres sí llegan hasta z19
+                    maxNativeZoom={19}
+                    maxZoom={20}
                     updateWhenIdle={true}
                   />
                 </LayerGroup>
