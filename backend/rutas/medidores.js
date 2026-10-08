@@ -75,40 +75,6 @@ router.get('/buscar', proteger, async (req, res) => {
   }
 })
 
-// GET /api/medidores/cercanos?lng=-71.71&lat=-35.51&distancia=300
-router.get('/cercanos', proteger, async (req, res) => {
-  try {
-    const lng       = parseFloat(req.query.lng)
-    const lat       = parseFloat(req.query.lat)
-    const distancia = parseInt(req.query.distancia) || 200
-    const ul        = req.query.ul || null
-
-    if (isNaN(lng) || isNaN(lat)) {
-      return res.status(400).json({ error: 'Se requieren parámetros lng y lat válidos' })
-    }
-
-    const filtro = {
-      ubicacion: {
-        $near: {
-          $geometry:    { type: 'Point', coordinates: [lng, lat] },
-          $maxDistance: distancia,
-        },
-      },
-    }
-
-    if (ul) {
-      filtro.unidadDeLectura = ul
-    } else if (req.usuario.rol === 'lector') {
-      filtro.unidadDeLectura = { $in: req.usuario.unidadesLectura }
-    }
-
-    const medidores = await Medidor.find(filtro).select('-__v')
-    res.json({ total: medidores.length, distanciaMetros: distancia, medidores })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
 // GET /api/medidores/uls
 // Devuelve las ULs disponibles según el rol del usuario.
 //

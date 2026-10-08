@@ -84,8 +84,11 @@ const medidorSchema = new mongoose.Schema(
   { timestamps: true }
 )
 
-medidorSchema.index({ ubicacion: '2dsphere' })
 medidorSchema.index({ unidadDeLectura: 1 })
-medidorSchema.index({ instalacion: 'text', direccion: 'text', numeroDePoste: 'text' })
+// Saqué dos índices que no ocupábamos y solo hacían más lentos los inserts
+// y updates (sobre todo al importar rutas con cientos de medidores):
+// - el de texto (instalacion/direccion/numeroDePoste): el buscador usa $regex
+// - el 2dsphere de ubicacion: solo lo usaba la ruta /cercanos, que el front
+//   nunca llamaba, así que también la borré
 
 module.exports = mongoose.model('Medidor', medidorSchema)
