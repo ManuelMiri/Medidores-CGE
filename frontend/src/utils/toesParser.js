@@ -155,6 +155,48 @@ export function estadoDeUL(estado, ul, ciclo = cicloVigente(estado, ul)) {
 }
 
 /**
+ * Cierre que corresponde al ciclo indicado (por defecto, el vigente), o null.
+ *
+ * La línea de cierre que escribe TOES trae la UL pero NO el ciclo, así que hay
+ * que atarla por tiempo: un cierre es de este ciclo si ocurrió después de que
+ * el ciclo empezó. Sin esto, el cierre del mes pasado seguiría marcando la
+ * ruta como CERRADA al empezar la del mes siguiente — y eso le diría al lector
+ * que ya terminó una ruta que ni siquiera empezó.
+ *
+ * Ojo con las dos escalas de tiempo del log, que no son la misma:
+ *   - ACTUALMRDATE viene en UTC  ("2026-10-06T17:53:49.520Z")
+ *   - la línea de cierre, en hora local ("2026-10-06 14:53:49.266")
+ * Date.parse() interpreta bien las dos (la segunda como local) y las deja
+ * comparables, pero no se pueden comparar como texto.
+ *
+ * Límite conocido: si el lector abriera un ciclo nuevo de la misma UL ANTES de
+ * cerrar el anterior, ese cierre se atribuiría al ciclo nuevo. No pasa con una
+ * ruta mensual por UL, que es como se trabaja hoy.
+ */
+export function cierreDeCiclo(cierres, estado, ul, ciclo = cicloVigente(estado, ul)) {
+  if (!ciclo || !cierres?.length) return null;
+
+  let inicio = Infinity;
+  for (const v of estado.values()) {
+    if (v.unidad !== ul || v.ciclo !== ciclo || !v.fecha) continue;
+    const t = Date.parse(v.fecha);
+    if (!Number.isNaN(t) && t < inicio) inicio = t;
+  }
+  if (inicio === Infinity) return null;
+
+  let mejor = null;
+  let mejorT = -Infinity;
+  for (const c of cierres) {
+    if (c.unidad !== ul) continue;
+    const t = Date.parse(String(c.fechaLog).replace(' ', 'T'));
+    if (Number.isNaN(t) || t < inicio || t <= mejorT) continue;
+    mejor = c;
+    mejorT = t;
+  }
+  return mejor;
+}
+
+/**
  * Índice paralelo por número de medidor (GERAET), para el respaldo de §5.4:
  * cuando un punto del mapa no trae instalación, se intenta calzar por medidor.
  * Solo dentro de la misma UL y ciclo, nunca cruzando.

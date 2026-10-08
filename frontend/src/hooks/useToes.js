@@ -13,6 +13,7 @@ import {
   cicloVigente,
   estadoDeUL,
   tomadosPorMedidor,
+  cierreDeCiclo,
 } from '../utils/toesParser'
 import * as almacen from '../utils/toesStore'
 import config from '../config/clavesToes.json'
@@ -153,9 +154,10 @@ export function useToes(ulsActivas = []) {
       const descartado = descartados[ul] === ciclo
       const tomados = descartado ? new Map() : estadoDeUL(estado, ul, ciclo)
       const porMedidor = descartado ? new Map() : tomadosPorMedidor(estado, ul, ciclo)
-      const cierre = cierres
-        .filter((c) => c.unidad === ul)
-        .sort((a, b) => b.fechaLog.localeCompare(a.fechaLog))[0]
+      // El cierre tiene que ser DE ESTE ciclo. Tomar simplemente el último de
+      // la UL hacía que el cierre del mes pasado marcara como CERRADA una
+      // ruta que recién empieza.
+      const cierre = descartado ? null : cierreDeCiclo(cierres, estado, ul, ciclo)
       salida[ul] = { ciclo, descartado, tomados, porMedidor, cierre }
     }
     return salida

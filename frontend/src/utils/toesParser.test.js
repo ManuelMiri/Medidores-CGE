@@ -11,6 +11,7 @@ import {
   estadoPorInstalacion,
   cicloVigente,
   estadoDeUL,
+  cierreDeCiclo,
   llave,
 } from './toesParser.js'
 import {
@@ -122,6 +123,71 @@ describe('cierres de unidad', () => {
       lineaCierre('E9999999', 'Final', '20:00:00.000')
     const { cierres } = parsearLog(texto)
     assert.deepEqual(cierres.map((c) => c.tipo), ['especial', 'final'])
+  })
+})
+
+// Si TOES no arranca en frio (queda vivo en segundo plano de un dia para
+// otro), NO crea archivo nuevo: sigue escribiendo en el del dia anterior. Eso
+// hace que un mismo archivo pueda traer dos rutas distintas, con dos ciclos y
+// dos cierres. Estos casos salieron de ahi.
+describe('a que ciclo pertenece un cierre', () => {
+  // El ciclo de ayer cerrado, y hoy una ruta nueva de la MISMA UL que todavia
+  // no se cierra. Antes de atar el cierre a un ciclo, el panel mostraba
+  // CERRADA sobre una ruta que recien empezaba.
+  const dosRutas =
+    bloqueServicio({ instalacion: 'A1', ciclo: '2026-10-06', fecha: '2026-10-07T12:00:00.000Z' }) +
+    lineaCierre('E9999999', 'Final', '14:37:58.457', '2026-10-07') +
+    bloqueServicio({ instalacion: 'B1', ciclo: '2026-11-05', fecha: '2026-11-05T13:00:00.000Z' })
+
+  test('el cierre del ciclo anterior no marca cerrado al ciclo nuevo', () => {
+    const { eventos, cierres } = parsearLog(dosRutas)
+    const estado = estadoPorInstalacion(eventos)
+    assert.equal(cicloVigente(estado, 'E9999999'), '2026-11-05')
+    assert.equal(cierreDeCiclo(cierres, estado, 'E9999999'), null)
+  })
+
+  test('pero ese cierre sigue siendo el del ciclo al que pertenece', () => {
+    const { eventos, cierres } = parsearLog(dosRutas)
+    const estado = estadoPorInstalacion(eventos)
+    const c = cierreDeCiclo(cierres, estado, 'E9999999', '2026-10-06')
+    assert.equal(c?.tipo, 'final')
+  })
+
+  test('dos cierres del mismo ciclo: gana el ultimo', () => {
+    const texto =
+      bloqueServicio({ ciclo: '2026-10-06', fecha: '2026-10-06T12:00:00.000Z' }) +
+      lineaCierre('E9999999', 'Especial', '19:23:25.266', '2026-10-06') +
+      lineaCierre('E9999999', 'Final', '14:37:58.457', '2026-10-07')
+    const { eventos, cierres } = parsearLog(texto)
+    const estado = estadoPorInstalacion(eventos)
+    assert.equal(cierreDeCiclo(cierres, estado, 'E9999999')?.tipo, 'final')
+  })
+
+  test('un cierre de otra UL no cierra esta', () => {
+    const texto =
+      bloqueServicio({ ciclo: '2026-10-06', fecha: '2026-10-06T12:00:00.000Z' }) +
+      lineaCierre('E0000001', 'Final', '19:23:25.266', '2026-10-06')
+    const { eventos, cierres } = parsearLog(texto)
+    const estado = estadoPorInstalacion(eventos)
+    assert.equal(cierreDeCiclo(cierres, estado, 'E9999999'), null)
+  })
+
+  test('sin cierres no se inventa ninguno', () => {
+    const { eventos, cierres } = parsearLog(bloqueServicio())
+    const estado = estadoPorInstalacion(eventos)
+    assert.equal(cierreDeCiclo(cierres, estado, 'E9999999'), null)
+  })
+
+  // La linea de cierre va en hora local y ACTUALMRDATE en UTC: compararlas
+  // como texto daria cualquier cosa. Un cierre a las 19:23 locales del mismo
+  // dia es posterior a una lectura de las 17:53Z (14:53 locales).
+  test('compara bien aunque el log mezcle hora local y UTC', () => {
+    const texto =
+      bloqueServicio({ ciclo: '2026-10-06', fecha: '2026-10-06T17:53:49.520Z' }) +
+      lineaCierre('E9999999', 'Especial', '19:23:25.266', '2026-10-06')
+    const { eventos, cierres } = parsearLog(texto)
+    const estado = estadoPorInstalacion(eventos)
+    assert.equal(cierreDeCiclo(cierres, estado, 'E9999999')?.tipo, 'especial')
   })
 })
 

@@ -68,8 +68,10 @@ export function bloqueSincronizacion(servicios = [{}]) {
 
 // Las dos variantes de cierre que escribe TOES. El README solo documentaba
 // "Especial"; "Final" aparecio en el log del segundo dia de una ruta.
-export function lineaCierre(unidad = 'E9999999', tipo = 'Especial', hora = '19:23:25.266') {
-  return `2026-10-06 ${hora} : DEBUG : Cierre ${tipo} realizado correctamente: ["'${unidad}'"]\n`
+// Ojo: la hora de esta linea es LOCAL, mientras que el ACTUALMRDATE de los
+// bloques viene en UTC. En los logs reales se llevan 3 horas de diferencia.
+export function lineaCierre(unidad = 'E9999999', tipo = 'Especial', hora = '19:23:25.266', dia = '2026-10-06') {
+  return `${dia} ${hora} : DEBUG : Cierre ${tipo} realizado correctamente: ["'${unidad}'"]\n`
 }
 
 export function lineaRuido() {
