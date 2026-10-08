@@ -10,7 +10,7 @@ El backend además fue usado como base para el encargo de la Unidad 2 del ramo P
 |---|---|---|
 | Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción |
 | Frontend web / PWA | Vercel (`https://medidores-cge.vercel.app`) | En producción |
-| APK Android (Capacitor) | `frontend/android/`, sideload interno | Compila; **bloqueado** por un cambio de CORS sin desplegar (ver "Compilar el APK") |
+| APK Android (Capacitor) | `frontend/android/`, sideload interno | Compila e inicia sesión contra producción; falta el acceso automático a `/TOES` |
 | Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Lógica completa; lectura automática de `/TOES` **pendiente** |
 
 Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end.
@@ -59,7 +59,7 @@ frontend/
 ├── vite.config.js          # PWA con injectRegister: false (el SW se registra a mano)
 ├── android/                # proyecto Android generado por Capacitor (fuera de git y de Vercel)
 └── src/
-    ├── pages/Mapa.jsx      # el mapa; ~767 líneas, es el archivo central del frontend
+    ├── pages/Mapa.jsx      # el mapa; ~990 líneas, es el archivo central del frontend
     ├── pages/Login.jsx
     ├── components/
     │   ├── PanelToes.jsx       # bloque "Lecturas de TOES" del panel lateral
@@ -124,6 +124,7 @@ Hecho y verificable hoy en el navegador:
 - Carga manual de logs con `<input type="file" multiple>` (los archivos se ordenan por nombre, que es orden cronológico).
 - Contador tomados/total por UL con barra de progreso, ciclo vigente, insignia CERRADA / cierre parcial, botón "Nuevo ciclo" (con confirmación), interruptor "Ver tomados" (atenuados) y la lista de tomados sin punto en el mapa.
 - **Nunca se borra** un punto, una foto, una descripción ni una etiqueta: solo cambia la visibilidad.
+- **Los pines van agrupados por punto** (`agruparCercanos`, 5 m), así que la decisión es por grupo y no por medidor: el pin se oculta solo cuando no queda ningún servicio por visitar, el contador cuenta los que quedan (no los que hay), y se atenúa solo si todo lo que queda en ese pin ya fue tomado. Un medidor elegido a propósito — tocado o buscado — se muestra aunque TOES lo haya tomado; sin esa excepción, buscar una instalación ya tomada no mostraría nada y el buscador parecería roto.
 
 Pendiente:
 
@@ -199,7 +200,7 @@ cd backend
 npm test
 ```
 
-**Frontend — 19 tests del parser de TOES** (18 pasan, 1 se omite). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 31 tests** (30 pasan, 1 se omite): 19 del parser de TOES y 12 de la visibilidad de los pines. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
@@ -293,7 +294,7 @@ Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/
   sdk.dir=C:/Users/<usuario>/AppData/Local/Android/Sdk
   ```
 - **`ANDROID_HOME` debe ser una ruta nativa de Windows.** Una ruta estilo MSYS (`/c/Users/...`) no la entienden ni Java ni Gradle.
-- **El backend necesita el CORS de `https://localhost` desplegado en Railway.** Hasta que ese cambio esté en producción, el APK instalado **no puede ni iniciar sesión**: el preflight desde `Origin: https://localhost` vuelve `204` sin `access-control-allow-origin`. Está verificado contra producción.
+- **El APK necesita el CORS de `https://localhost` en el backend**, ya desplegado. Si alguna vez se cae ese origen de la lista, el APK deja de poder iniciar sesión: el preflight vuelve `204` sin `access-control-allow-origin` y no hay mensaje de error que lo explique.
 - `frontend/.env.native` tiene que llevar la API con **URL absoluta**. Una ruta relativa (`/api`) apuntaría al servidor local de Capacitor y daría 404.
 - El service worker se registra **solo en navegador** (`main.jsx`), con `injectRegister: false` en `vite.config.js`. Dentro del WebView, Android conserva el storage entre actualizaciones y el SW seguiría sirviendo el bundle viejo después de instalar una versión nueva.
 - `frontend/android/` está fuera de git y de Vercel (`.vercelignore`), así que el despliegue web no cambia.
@@ -308,7 +309,7 @@ La distribución es por **sideload interno**, no Play Store. Conviene agregar un
 - **Nunca commitear logs reales de TOES.** Para los tests existe el fixture sintético.
 - **No subir el contenido del log a ningún servidor.** Si aparece la tentación de un endpoint para "sincronizar lecturas", es exactamente lo que la regla de privacidad prohíbe.
 - **No raspar tiles de Google** (`mt{s}.google.com/vt/`): viola los términos de Google Maps. El mapa usa OpenStreetMap y satelital de Esri.
-- El archivo central del frontend es `src/pages/Mapa.jsx` (~767 líneas): ahí viven el mapa, el panel lateral y el render de marcadores. La decisión de ocultar/atenuar un marcador está aislada en `utils/vistaMarcador.js`.
+- El archivo central del frontend es `src/pages/Mapa.jsx` (~990 líneas): ahí viven el mapa, el panel lateral y el render de pines. Los pines se agrupan por punto (`agruparCercanos`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
 
 ## Decisiones de diseño (resumen)
 
