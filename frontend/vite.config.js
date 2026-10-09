@@ -22,6 +22,9 @@ export default defineConfig({
         // control apenas está lista, sin esperar nada.
         skipWaiting: true,
         clientsClaim: true,
+        // sw-tiles.js es el service worker del APK: no es un asset de la app
+        // y no tiene nada que hacer dentro del precache de la web.
+        globIgnores: ['**/sw-tiles.js'],
         // borra los archivos de versiones anteriores del caché, para que no
         // se mezclen .js viejos con nuevos (eso era el error raro al abrir)
         cleanupOutdatedCaches: true,
