@@ -189,6 +189,15 @@ se limpian los datos del WebView se pierde el URI guardado en IndexedDB pero el 
 sigue vivo, así que se le pregunta al plugin en vez de confiar en lo guardado.
 
 
+**Ojo con logcat en los builds de debug.** Capacitor registra en el log de Android el resultado de cada
+llamada a un plugin, y eso incluye el **texto completo del log de TOES** que devuelve `leerLog`: con
+direcciones, lecturas y coordenadas de clientes. No sale del teléfono, pero queda legible para cualquiera
+con `adb`. Solo pasa en builds de debug (el `loggingBehavior` por defecto de Capacitor solo registra si
+la app es depurable), así que **antes de firmar un APK de release conviene poner
+`"loggingBehavior": "none"` en `capacitor.config.json`** y verificarlo. Se deja en el default mientras
+se prueba, porque es justamente ese log el que permite diagnosticar errores de JS en el teléfono.
+
+
 ## Rendimiento del mapa
 
 El dato que ordena todo esto: en Atlas hay **1.765 medidores** repartidos en 8 ULs, de 83 a 302 cada

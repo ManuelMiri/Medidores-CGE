@@ -246,14 +246,12 @@ export default function Mapa() {
 
   const CENTRO_MAULE = [-35.5, -71.65]
 
-  useEffect(() => { cargarUls() }, [])
-  useEffect(() => {
-    if (ulsActivas.length > 0) cargarMedidores()
-    else setMedidores([])
-    // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
-    // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
-  }, [ulsActivas, cargarMedidores])
-
+  // OJO con el orden: estas dos van ANTES de los useEffect que las usan.
+  // `cargarMedidores` es un const, y un const no se hoistea como una function:
+  // si queda debajo, el array de dependencias del efecto — que se evalúa
+  // durante el render — lo lee antes de que exista y tira
+  // "Cannot access 'cargarMedidores' before initialization". Eso revienta el
+  // render de Mapa, React desmonta el árbol y la app queda en blanco.
   async function cargarUls() {
     try {
       const { data } = await api.get('/medidores/uls')
@@ -274,6 +272,14 @@ export default function Mapa() {
     } catch { setError('Error al cargar los medidores') }
     finally { setCargando(false) }
   }, [ulsActivas])
+
+  useEffect(() => { cargarUls() }, [])
+  useEffect(() => {
+    if (ulsActivas.length > 0) cargarMedidores()
+    else setMedidores([])
+    // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
+    // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
+  }, [ulsActivas, cargarMedidores])
 
   function toggleUl(ul) {
     setUlsActivas(prev =>
