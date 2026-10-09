@@ -658,8 +658,16 @@ export default function Mapa() {
 
               <LayersControl.BaseLayer name="Satélite" checked={capaInicial === 'satelite'}>
                 {/* La foto sola no tiene nombres de calles, así que encima le
-                    pongo las capas de referencia de Esri (calles y lugares)
-                    para no perderse en sectores rurales */}
+                    pongo la capa de referencia de Esri (caminos y sus nombres)
+                    para no perderse en sectores rurales.
+
+                    Acá había también World_Boundaries_and_Places (nombres de
+                    localidades y límites) y se quitó. Midiendo el caché de
+                    tiles del teléfono, cada capa de referencia pesaba lo mismo
+                    que la foto: de 1.093 tiles cacheados, 313 eran de esa capa
+                    sola — un 29% del tráfico del mapa. En el Maule rural los
+                    caminos ya ubican, y sus nombres salen en la capa que
+                    queda. */}
                 <LayerGroup>
                   {/* Probé con medidores reales de las 6 ULs: Esri tiene foto
                       real hasta z18 en toda la zona, y en z19 devuelve el
@@ -687,12 +695,6 @@ export default function Mapa() {
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
-                    maxZoom={18}
-                    updateWhenIdle={true}
-                    crossOrigin="anonymous"
-                  />
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
                     maxZoom={18}
                     updateWhenIdle={true}
                     crossOrigin="anonymous"

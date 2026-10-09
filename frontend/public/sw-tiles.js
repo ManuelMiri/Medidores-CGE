@@ -22,13 +22,28 @@ const CABECERA_FECHA = 'x-cacheado-en'
 // Los mismos de vite.config.js. Si se agrega una capa nueva al mapa, va acá.
 const HOSTS_DE_TILES = ['tile.openstreetmap.org', 'server.arcgisonline.com']
 
+// Capas que ya no se usan. Lo que quedó cacheado de ellas se borra al activar
+// una versión nueva del service worker: si no, seguiría ocupando parte de las
+// 1.500 entradas hasta que la poda FIFO lo alcanzara. Cuando se saque una capa
+// del mapa, su fragmento de URL va acá.
+const CAPAS_RETIRADAS = ['World_Boundaries_and_Places']
+
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (evento) => {
   evento.waitUntil((async () => {
     await self.clients.claim()
-    await podar(await caches.open(CACHE), true)
+    const cache = await caches.open(CACHE)
+    await limpiarCapasRetiradas(cache)
+    await podar(cache, true)
   })())
 })
+
+async function limpiarCapasRetiradas(cache) {
+  if (!CAPAS_RETIRADAS.length) return
+  for (const peticion of await cache.keys()) {
+    if (CAPAS_RETIRADAS.some((c) => peticion.url.includes(c))) await cache.delete(peticion)
+  }
+}
 
 const esTile = (url) => HOSTS_DE_TILES.includes(url.hostname)
 
