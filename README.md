@@ -10,7 +10,7 @@ El backend además fue usado como base para el encargo de la Unidad 2 del ramo P
 |---|---|---|
 | Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción |
 | Frontend web / PWA | Vercel (`https://medidores-cge.vercel.app`) | En producción |
-| APK Android (Capacitor) | `frontend/android/`, sideload interno | Lee la carpeta `/TOES` sola cada 5 s; falta confirmarlo en terreno |
+| APK Android (Capacitor) | `frontend/android/`, sideload interno | Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
 | Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Completa: parser, visibilidad del mapa y lectura automática de `/TOES` en el APK |
 
 Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end.
@@ -58,12 +58,13 @@ frontend/
 ├── .env.native             # VITE_API_URL absoluta para el build del APK
 ├── vite.config.js          # PWA con injectRegister: false (el SW se registra a mano)
 ├── scripts/compilarApk.mjs # busca un JDK 21 y corre gradlew (sirve en cualquier shell)
+├── public/sw-tiles.js      # service worker del APK: cachea tiles, no precachea nada
 ├── android/                # proyecto Android (Capacitor). Versionado; fuera de Vercel
 │   └── app/src/main/java/cl/mla/maule/
 │       ├── MainActivity.java      # registra el plugin de TOES
 │       └── toes/ToesPlugin.java   # lee /TOES por SAF, solo lectura
 └── src/
-    ├── pages/Mapa.jsx      # el mapa; ~775 líneas, es el archivo central del frontend
+    ├── pages/Mapa.jsx      # el mapa; ~785 líneas, es el archivo central del frontend
     ├── pages/Login.jsx
     ├── components/
     │   ├── PanelToes.jsx       # bloque "Lecturas de TOES" del panel lateral
@@ -232,8 +233,61 @@ del `runtimeCaching` del service worker y en el camino crítico del primer dibuj
 mala los pines podían tardar o no aparecer. Tampoco llevan `shadowUrl`, que era un `<img>` **extra por
 marcador**.
 
+### Caché de tiles en el APK
+
+El service worker **con precache** sigue siendo solo del navegador: dentro del WebView, Android conserva
+el storage entre actualizaciones del APK y seguiría sirviendo el bundle viejo después de instalar una
+versión nueva. Pero al apagarlo se iba también el caché de tiles, así que el APK volvía a bajar cada
+zona ya visitada. En terreno rural eso pesa más que los pines.
+
+La salida es un service worker propio del APK, `frontend/public/sw-tiles.js`, que **no precachea nada**
+y solo intercepta los hosts de tiles. Para cualquier otra petición ni siquiera llama a `respondWith`,
+así que los assets de la app y las llamadas a `/api` pasan de largo: el problema que motivó apagar el
+SW no aplica. Lo registra `main.jsx` en la rama nativa.
+
+Cuatro decisiones que no son obvias:
+
+- **Solo respuestas `200` y no opacas.** Una respuesta opaca le cuesta ~7 MB de cuota a Chrome; con unos
+  cientos de tiles el teléfono se quedaba sin espacio. Ya le pasó a este proyecto. Los tiles se piden con
+  `crossOrigin="anonymous"`, así que llegan como `cors`.
+- **Sin red vale una copia vencida** antes que un cuadro gris: la foto satelital de hace dos meses sirve
+  igual para ubicar un medidor.
+- Si se acaba la cuota igual, se bota el caché entero en vez de dejar el SW fallando en cada tile.
+- La fecha de cacheo va como cabecera propia (`x-cacheado-en`) porque la Cache API no guarda cuándo se
+  escribió cada entrada, y las cabeceras de una `Response` son inmutables.
+
+`CAPAS_RETIRADAS` borra al activarse lo que quedó cacheado de capas que ya no se usan, para que no ocupe
+parte de las 1.500 entradas hasta que la poda FIFO lo alcance.
+
+### Cuántos tiles cuesta cada capa
+
+Medido con DevTools sobre el caché real del teléfono, con 1.093 tiles acumulados:
+
+| Capa | Tiles | Peso |
+|---|---|---|
+| foto respaldo (z15) | 154 | 14% |
+| foto buena | 313 | 29% |
+| calles (World_Transportation) | 313 | 29% |
+| ~~lugares (World_Boundaries_and_Places)~~ | ~~313~~ | **retirada** |
+
+`World_Boundaries_and_Places` costaba lo mismo que la foto misma y no se usaba en terreno: se quitó, y
+el caché bajó de 1.093 a 788 tiles.
+
+**El respaldo z15 se queda.** Cuesta 14% y no el 50% que parecía: solo pide tiles hasta z15 y de ahí
+para arriba reutiliza los mismos estirados. Verificado además que a z18 la foto buena carga sus tiles
+**sin un solo fallo**, o sea que el respaldo queda tapado — lo borroso del zoom máximo es el límite de
+resolución de Esri, no el respaldo asomando. Sacarlo no quitaría esa borrosidad y cambiaría una foto
+borrosa pero usable por un cuadro gris en un sector sin cobertura, justo en los casos difíciles.
+
+
 ### Lo que se probó y se descartó
 
+- **Mover un `const` del hook debajo de un `useEffect` que lo declara en sus dependencias.** Los arrays
+  de dependencias se evalúan **durante el render** y un `const` no se hoistea como una `function`, así
+  que da `Cannot access 'X' before initialization`: el componente revienta, React desmonta el árbol y la
+  app queda **en blanco**. Pasó de verdad al "cerrar" una advertencia de `exhaustive-deps`. Ni el build
+  ni oxlint lo ven (oxlint no implementa `no-use-before-define`), y solo apareció en `adb logcat`. En
+  `Mapa.jsx` las funciones de carga van arriba de los efectos por esto.
 - **`markerZoomAnimation={false}`**: ahorra el handler de `zoomanim` por marcador, pero Leaflet lo
   implementa poniéndole `leaflet-zoom-hide` al panel de marcadores, o sea que **los pines se ocultan
   durante toda la animación de zoom** y reaparecen de golpe. Se lee como una falla, no como fluidez. El
@@ -241,16 +295,6 @@ marcador**.
 
 ### Lo que falta
 
-- **En el APK no hay caché de tiles.** El service worker se registra solo en el navegador
-  (`main.jsx`), por una razón válida — dentro del WebView Android conserva el storage y seguiría
-  sirviendo el bundle precacheado viejo después de instalar una versión nueva — pero con eso se va
-  también el `runtimeCaching` de tiles (1.500 tiles × 30 días de OSM y Esri). En el APK los tiles
-  dependen solo del caché HTTP del WebView, así que entrar a una zona ya vista los vuelve a bajar. En
-  terreno rural es probablemente lo que más se nota, y la salida sería un service worker para el APK
-  que cachee tiles **sin** precachear el bundle.
-- **La capa satelital son 4 `TileLayer` apilados**: la foto de respaldo z15, la foto buena y dos de
-  referencia de Esri. Panear en satélite pide y dibuja 4 capas de tiles. Antes de sacar alguna hay que
-  confirmar en terreno si el respaldo z15 llega a actuar en algún sector.
 - **El techo es la arquitectura.** Google Maps usa tiles vectoriales sobre GPU; esto son tiles raster y
   marcadores de DOM. Esa diferencia no se cierra sin cambiar de motor (MapLibre GL).
 
@@ -426,7 +470,7 @@ La distribución es por **sideload interno**, no Play Store. Conviene agregar un
 - **Nunca commitear logs reales de TOES.** Para los tests existe el fixture sintético.
 - **No subir el contenido del log a ningún servidor.** Si aparece la tentación de un endpoint para "sincronizar lecturas", es exactamente lo que la regla de privacidad prohíbe.
 - **No raspar tiles de Google** (`mt{s}.google.com/vt/`): viola los términos de Google Maps. El mapa usa OpenStreetMap y satelital de Esri.
-- El archivo central del frontend es `src/pages/Mapa.jsx` (~775 líneas): ahí viven el mapa y el panel lateral. **El render de los pines ya no está ahí**, está en `components/CapaMedidores.jsx` por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
+- El archivo central del frontend es `src/pages/Mapa.jsx` (~785 líneas): ahí viven el mapa y el panel lateral. **El render de los pines ya no está ahí**, está en `components/CapaMedidores.jsx` por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
 
 ## Decisiones de diseño (resumen)
 
