@@ -19,6 +19,7 @@ import { ulsARestaurar } from '../utils/ulsActivas'
 import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
 import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
 import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
+import MapaGL from '../components/MapaGL'
 import 'leaflet/dist/leaflet.css'
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
@@ -249,6 +250,15 @@ function RecordarCapa({ onCambio }) {
 
 // Se resuelve una vez: no puede cambiar durante la sesión.
 const puedePrecargar = hayPrecarga()
+
+// Motor del mapa. Es un SPIKE detrás de un flag, no un reemplazo: sirve para
+// medir si pasar los pines a la GPU vale la pena antes de reescribir popups,
+// formularios y captura de fotos, que es donde está el trabajo de verdad.
+// Se prende desde la consola del WebView:
+//   localStorage.setItem('motorMapa', 'maplibre')
+const MOTOR_GL = (() => {
+  try { return localStorage.getItem('motorMapa') === 'maplibre' } catch { return false }
+})()
 
 export default function Mapa() {
   const { usuario, logout } = useAuth()
@@ -896,6 +906,9 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               Si dejaba acercar más, en el teléfono aparecían cuadrados grises.
               Con el pin no se pierde precisión: queda en la coordenada exacta
               donde tocas, da igual el zoom. */}
+          {MOTOR_GL ? (
+            <MapaGL grupos={grupos} vistas={vistas} capa={capaActiva} />
+          ) : (
           <MapContainer
             center={CENTRO_MAULE} zoom={13} maxZoom={18}
             style={{ height: '100%', width: '100%' }}
@@ -1042,6 +1055,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               onResolverMarca={resolverMarca}
             />
           </MapContainer>
+          )}
         </div>
 
         {/* Panel lateral derecho en ESCRITORIO */}
