@@ -36,7 +36,7 @@ interno que además lee los logs de TOES del teléfono.
 
 ```bash
 cd frontend
-npm test              # 97 tests con node --test (sin dependencias extra)
+npm test              # 103 tests con node --test (sin dependencias extra)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
 npm run build         # build web (PWA)
@@ -63,6 +63,7 @@ bug solo apareció ahí.
 | `frontend/src/utils/cursorToes.js` | cursor de lectura incremental, **en bytes** |
 | `frontend/src/utils/toesNativo.js` | puente con el plugin nativo y bucle de lectura |
 | `frontend/src/utils/marcasToes.js` | qué claves proponen marca permanente y cuál la quita |
+| `frontend/src/utils/ulsActivas.js` | qué ULs quedan marcadas al abrir la app |
 | `frontend/src/hooks/useMarcasToes.js` | lo único de TOES que escribe en el backend |
 | `frontend/src/hooks/useToes.js` | une parser + almacén + mapa |
 | `frontend/public/sw-tiles.js` | service worker del APK: cachea tiles, no precachea |

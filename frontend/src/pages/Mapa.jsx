@@ -15,6 +15,7 @@ import { useMarcasToes } from '../hooks/useMarcasToes'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
+import { ulsARestaurar } from '../utils/ulsActivas'
 import 'leaflet/dist/leaflet.css'
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
@@ -164,6 +165,23 @@ function leerCapaGuardada() {
 }
 const capaInicial = leerCapaGuardada()
 
+// Y lo mismo con las ULs marcadas. Antes, al cerrar y volver a abrir la app
+// siempre quedaba seleccionada la primera de la lista: si estabas trabajando
+// en la UL de más abajo, tenías que volver a buscarla y marcarla cada vez.
+const CLAVE_ULS = 'ulsActivas'
+function leerUlsGuardadas() {
+  try {
+    const lista = JSON.parse(localStorage.getItem(CLAVE_ULS) ?? '[]')
+    return Array.isArray(lista) ? lista.filter((u) => typeof u === 'string') : []
+  } catch {
+    return []
+  }
+}
+// Se lee UNA vez al cargar el módulo, igual que la capa. Hacerlo dentro del
+// componente no serviría: el efecto que guarda corre al montar, cuando
+// ulsActivas todavía es [], y pisaría lo guardado antes de poder leerlo.
+const ulsIniciales = leerUlsGuardadas()
+
 function RecordarCapa() {
   useMapEvents({
     baselayerchange: (e) => {
@@ -270,7 +288,11 @@ export default function Mapa() {
     try {
       const { data } = await api.get('/medidores/uls')
       setUls(data.uls)
-      if (data.uls.length > 0) setUlsActivas([data.uls[0]])
+      // La regla de qué se restaura vive en utils/ulsActivas.js, con tests:
+      // descartar una UL que ya no existe falla en silencio (el mapa queda
+      // vacío sin decir por qué).
+      const restauradas = ulsARestaurar(ulsIniciales, data.uls)
+      if (restauradas.length > 0) setUlsActivas(restauradas)
     } catch { setError('Error al cargar las unidades de lectura') }
     finally { setCargando(false) }
   }
@@ -294,6 +316,13 @@ export default function Mapa() {
     // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
     // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
   }, [ulsActivas, cargarMedidores])
+
+  // Guardar lo que esté marcado. El guard de `uls` evita el momento del
+  // montaje, cuando todavía no llegó la lista y ulsActivas es [].
+  useEffect(() => {
+    if (!uls.length) return
+    try { localStorage.setItem(CLAVE_ULS, JSON.stringify(ulsActivas)) } catch { /* sin storage, da igual */ }
+  }, [ulsActivas, uls])
 
   // Lo que TOES dice sobre los puntos donde ya no hay medidor se manda al
   // servidor, porque la marca tiene que verla el lector del mes siguiente

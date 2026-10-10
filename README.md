@@ -411,7 +411,7 @@ cd backend
 npm test
 ```
 
-**Frontend — 97 tests** (96 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental, 20 de la visibilidad de los pines, 16 de qué claves proponen marca permanente y 9 del agrupado por punto. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 103 tests** (102 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental, 20 de la visibilidad de los pines, 16 de qué claves proponen marca permanente, 9 del agrupado por punto y 6 de qué ULs se restauran al abrir. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
