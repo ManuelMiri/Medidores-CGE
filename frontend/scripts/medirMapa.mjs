@@ -118,7 +118,8 @@ function valor(nombre, pordefecto) {
   return i >= 0 && args[i + 1] ? args[i + 1] : pordefecto
 }
 const etiqueta = valor('--etiqueta', 'sin etiqueta')
-const repeticiones = Number(valor('--repeticiones', '12'))
+// Menos repeticiones que con swipe: cada arrastre son ~15 llamadas a adb.
+const repeticiones = Number(valor('--repeticiones', '8'))
 const conZoom = args.includes('--zoom')
 
 // -------------------------------------------------------------------- el gesto
@@ -140,15 +141,38 @@ const x1 = Math.round(ancho * 0.80)
 const x2 = Math.round(ancho * 0.20)
 const y = Math.round(alto * 0.55)
 
-// 400 ms es un arrastre de verdad: lo bastante rapido para pedirle frames al
-// compositor y lo bastante lento para que Leaflet alcance a reaccionar.
-const DURACION_MS = 400
+// El arrastre se arma con motionevent y NO con `input swipe`, y esto costo
+// cinco corridas entenderlo: con swipe los resultados alternaban entre 90 % y
+// 35 % de frames janky sin que cambiara nada. No era ruido de medicion, era
+// INERCIA. `input swipe` suelta el dedo con velocidad, Leaflet hace fling y el
+// mapa viaja mucho mas lejos que el gesto, asi que cada corrida terminaba en una
+// zona distinta: a veces con los tiles ya cacheados y a veces no. La idea de
+// que "ida y vuelta vuelve al mismo lugar" era falsa.
+//
+// Con motionevent el dedo se mueve por pasos y se levanta quieto. Leaflet
+// descarta la inercia si pasan mas de inertiaThreshold (100 ms) entre el ultimo
+// movimiento y el dedo levantado, de ahi la pausa antes del UP. El gesto queda
+// acotado a la misma zona siempre, que es lo que hace comparables dos builds.
+const PASOS = 12
+const PAUSA_ANTES_DE_SOLTAR_MS = 250
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function arrastrar(xDesde, xHasta, altura) {
+  correr(['shell', 'input', 'motionevent', 'DOWN', String(xDesde), String(altura)])
+  for (let p = 1; p <= PASOS; p++) {
+    const x = Math.round(xDesde + ((xHasta - xDesde) * p) / PASOS)
+    correr(['shell', 'input', 'motionevent', 'MOVE', String(x), String(altura)])
+  }
+  await esperar(PAUSA_ANTES_DE_SOLTAR_MS)
+  correr(['shell', 'input', 'motionevent', 'UP', String(xHasta), String(altura)])
+}
 
 console.log('adb: ' + adb)
 console.log(
   'pantalla: ' + ancho + 'x' + alto +
   ' · gesto: swipe ' + x1 + '->' + x2 + ' en y=' + y +
-  ', ' + repeticiones + 'x' + (conZoom ? ' + zoom' : '')
+  ', ' + repeticiones + 'x' + (conZoom ? ' + zoom' : '') + ', sin inercia'
 )
 console.log('OJO: el panel lateral tiene que estar CERRADO, o el swipe cae sobre el.')
 console.log('midiendo, no toques el telefono...\n')
@@ -156,10 +180,10 @@ console.log('midiendo, no toques el telefono...\n')
 correr(['shell', 'dumpsys', 'gfxinfo', PAQUETE, 'reset'])
 
 for (let i = 0; i < repeticiones; i++) {
-  // Ida y vuelta, para terminar donde empezo: asi dos corridas seguidas miden
-  // la misma zona y no se van desplazando por el mapa.
-  correr(['shell', 'input', 'swipe', String(x1), String(y), String(x2), String(y), String(DURACION_MS)])
-  correr(['shell', 'input', 'swipe', String(x2), String(y), String(x1), String(y), String(DURACION_MS)])
+  // Ida y vuelta. Sin inercia esto SI vuelve al punto de partida, asi que dos
+  // corridas seguidas miden la misma zona con el mismo cache de tiles.
+  await arrastrar(x1, x2, y)
+  await arrastrar(x2, x1, y)
 
   if (conZoom) {
     // Doble toque = zoom in de Leaflet (doubleClickZoom, activo por defecto).
