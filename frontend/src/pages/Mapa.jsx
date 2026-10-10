@@ -16,6 +16,8 @@ import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
 import { ulsARestaurar } from '../utils/ulsActivas'
+import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
+import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
 import 'leaflet/dist/leaflet.css'
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
@@ -182,14 +184,21 @@ function leerUlsGuardadas() {
 // ulsActivas todavía es [], y pisaría lo guardado antes de poder leerlo.
 const ulsIniciales = leerUlsGuardadas()
 
-function RecordarCapa() {
+function RecordarCapa({ onCambio }) {
   useMapEvents({
     baselayerchange: (e) => {
-      try { localStorage.setItem(CLAVE_CAPA, e.name === 'Satélite' ? 'satelite' : 'calles') } catch { /* sin storage, da igual */ }
+      const capa = e.name === 'Satélite' ? 'satelite' : 'calles'
+      try { localStorage.setItem(CLAVE_CAPA, capa) } catch { /* sin storage, da igual */ }
+      // La capa visible también la necesita la precarga, para saber qué
+      // cuadros bajar: no tiene sentido bajar la foto si estás en calles.
+      onCambio(capa)
     },
   })
   return null
 }
+
+// Se resuelve una vez: no puede cambiar durante la sesión.
+const puedePrecargar = hayPrecarga()
 
 export default function Mapa() {
   const { usuario, logout } = useAuth()
@@ -239,6 +248,11 @@ export default function Mapa() {
   // La foto satelital de respaldo (z15) se monta SOLO si la foto buena llegó
   // a fallar alguna vez. Ver el comentario de la capa satelital, más abajo.
   const [fotoFallo, setFotoFallo] = useState(false)
+
+  // Capa visible, para saber qué cuadros bajar al precargar una ruta.
+  const [capaActiva, setCapaActiva] = useState(capaInicial)
+  // Descarga de tiles en curso: { ul, hechas, total, fallidas, mensaje }
+  const [precarga, setPrecarga] = useState(null)
   // Estable: un objeto nuevo en cada render haría que react-leaflet
   // desenganchara y volviera a enganchar el listener de la capa entera.
   const manejadoresFoto = useMemo(() => ({
@@ -532,6 +546,57 @@ export default function Mapa() {
     cargarMedidores()
   }
 
+  // Baja con wifi los cuadros del mapa de una ruta, para que en terreno no haya
+  // que esperar a Esri. Las coordenadas salen de medidores[].ubicacion, o sea
+  // de la base — NUNCA del log de TOES: pedir un tile le manda esa coordenada
+  // a Esri, y las del log son datos de clientes que no salen del telefono.
+  async function descargarMapaDeRuta(ul) {
+    const deLaRuta = medidores.filter((m) => m.unidadDeLectura === ul)
+    if (!deLaRuta.length) {
+      alert(`No hay medidores cargados de la ruta ${ul}.`)
+      return
+    }
+
+    const p = presupuestoDeRuta(deLaRuta, capaActiva)
+    if (!p.cantidad) {
+      alert(`Los medidores de ${ul} no tienen ubicación, así que no hay nada que bajar.`)
+      return
+    }
+
+    // Se pregunta antes porque son decenas de MB: empezar eso sin avisar, con
+    // datos móviles, sería gastarle el plan al lector sin que se entere.
+    const recorte = p.truncado
+      ? `
+
+Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando por los zooms generales.`
+      : ''
+    const seguir = confirm(
+      `¿Descargar el mapa de ${ul} en ${nombreDeCapa(capaActiva)}?
+
+` +
+      `≈ ${p.cantidad} cuadros, ~${p.mb} MB.
+` +
+      `Conviene hacerlo con wifi.${recorte}`
+    )
+    if (!seguir) return
+
+    setPrecarga({ ul, hechas: 0, total: p.cantidad })
+    try {
+      const r = await descargarRuta(deLaRuta, capaActiva, (a) => {
+        setPrecarga({ ul, hechas: a.hechas, total: a.total, fallidas: a.fallidas })
+      })
+      setPrecarga({
+        ul, hechas: r.hechas, total: r.total, fallidas: r.fallidas,
+        mensaje: r.sinEspacio
+          // Lo que alcanzó a bajarse queda y sirve: simplemente no está completo.
+          ? `Se acabó el espacio del teléfono: quedaron ${r.hechas} de ${r.total}. Lo bajado sirve igual.`
+          : `Listo: ${r.hechas} cuadros${r.fallidas ? `, ${r.fallidas} fallaron` : ''}.`,
+      })
+    } catch (err) {
+      setPrecarga({ ul, mensaje: err?.message ?? 'No se pudo descargar el mapa de la ruta' })
+    }
+  }
+
   async function handleExportarRuta(ul) {
     try {
       // responseType 'blob' porque es un archivo binario (.xlsx), no JSON.
@@ -625,28 +690,55 @@ export default function Mapa() {
                 {uls
                   .filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
                   .map(ul => (
-                    <div key={ul} className="d-flex align-items-center justify-content-between mb-1">
-                      <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
-                        <input className="form-check-input" type="checkbox"
-                          id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
-                          onChange={() => toggleUl(ul)} />
-                        <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
-                          style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+                    <div key={ul}>
+                      <div className="d-flex align-items-center justify-content-between mb-1">
+                        <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
+                          <input className="form-check-input" type="checkbox"
+                            id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
+                            onChange={() => toggleUl(ul)} />
+                          <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
+                            style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+                        </div>
+                        {/* Solo para las rutas marcadas: los medidores de una
+                            UL sin marcar no están cargados, así que no se sabe
+                            qué cuadros bajar. Y solo en el APK, que es donde
+                            tiene sentido salir a terreno sin señal. */}
+                        {puedePrecargar && ulsActivas.includes(ul) && (
+                          <button className="btn btn-sm p-0 px-1" title="Descargar el mapa de esta ruta (usar con wifi)"
+                            onClick={() => descargarMapaDeRuta(ul)}
+                            disabled={Boolean(precarga) && !precarga.mensaje}
+                            style={{ fontSize: '0.85rem' }}>
+                            🗺️
+                          </button>
+                        )}
+                        {/* Exportar la deja ver admin y supervisor; eliminar
+                            la ruta completa es una acción destructiva, solo
+                            para admin. */}
+                        {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
+                          <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
+                            onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+                            📥
+                          </button>
+                        )}
+                        {usuario.rol === 'admin' && (
+                          <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
+                            onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+                            🗑️
+                          </button>
+                        )}
                       </div>
-                      {/* Exportar la deja ver admin y supervisor; eliminar
-                          la ruta completa es una acción destructiva, solo
-                          para admin. */}
-                      {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                        <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
-                          onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
-                          📥
-                        </button>
-                      )}
-                      {usuario.rol === 'admin' && (
-                        <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
-                          onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
-                          🗑️
-                        </button>
+
+                      {precarga?.ul === ul && (
+                        <div
+                          onClick={() => precarga.mensaje && setPrecarga(null)}
+                          title={precarga.mensaje ? 'Tocar para ocultar' : undefined}
+                          style={{
+                            fontSize: '0.72rem', color: '#4a5568',
+                            margin: '-0.2rem 0 0.4rem 1.5rem',
+                            cursor: precarga.mensaje ? 'pointer' : 'default',
+                          }}>
+                          {precarga.mensaje ?? `Bajando el mapa… ${precarga.hechas} / ${precarga.total}`}
+                        </div>
                       )}
                     </div>
                   ))
@@ -785,7 +877,7 @@ export default function Mapa() {
                   // OpenStreetMap directo, que no piden key (para el uso que le
                   // damos, un equipo chico, está dentro de su política).
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  url={URL_CALLES}
                   // todas las capas con techo 18 (ver comentario del MapContainer)
                   maxZoom={18}
                   // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
@@ -844,7 +936,7 @@ export default function Mapa() {
                       tarde y la taparía justo donde se la necesita. */}
                   {fotoFallo && (
                     <TileLayer
-                      url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                      url={URL_FOTO_RESPALDO}
                       maxNativeZoom={15}
                       maxZoom={18}
                       updateWhenIdle={true}
@@ -855,7 +947,7 @@ export default function Mapa() {
                   )}
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
+                    url={URL_FOTO}
                     maxZoom={18}
                     updateWhenIdle={true}
                     updateWhenZooming={false}
@@ -864,7 +956,7 @@ export default function Mapa() {
                     eventHandlers={manejadoresFoto}
                   />
                   <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                    url={URL_CAMINOS}
                     maxZoom={18}
                     updateWhenIdle={true}
                     updateWhenZooming={false}
@@ -874,7 +966,7 @@ export default function Mapa() {
                 </LayerGroup>
               </LayersControl.BaseLayer>
             </LayersControl>
-            <RecordarCapa />
+            <RecordarCapa onCambio={setCapaActiva} />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <InvalidarTamano />
             <CapturarClick
