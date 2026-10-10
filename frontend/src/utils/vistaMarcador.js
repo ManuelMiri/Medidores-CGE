@@ -103,15 +103,23 @@ export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccio
   // no hay un color que represente al grupo, y además el pin con contador
   // necesita un icono con imagen (iconUrl), que el divIcon de color no tiene.
   let icono = iconos[visibles[0].estado] || iconos.pendiente
+  // `color` es el mismo tono que `icono`, pero suelto. Lo necesita el motor
+  // sobre GPU: allá el pin no es un divIcon con un SVG adentro sino una imagen
+  // que hay que generar por color, así que el hex tiene que salir de acá en vez
+  // de recalcularse mirando otra vez la configuración — si no, la regla de qué
+  // color le toca a cada punto quedaría escrita en dos lados.
+  let color = null
   if (visibles.length === 1) {
     const marcaSola = marcaActiva(visibles[0])
     const clave = toesPorId.get(visibles[0]._id)?.clave
     if (marcaSola) {
-      icono = iconoColor(config.etiquetas?.[marcaSola.tipo]?.color ?? config.colorClaveDesconocida)
+      color = config.etiquetas?.[marcaSola.tipo]?.color ?? config.colorClaveDesconocida
+      icono = iconoColor(color)
     } else if (clave) {
       // Una clave que no esté en la configuración no rompe nada: sale con el
       // color neutro y el popup la muestra como "clave NN".
-      icono = iconoColor(config.claves[clave]?.color ?? config.colorClaveDesconocida)
+      color = config.claves[clave]?.color ?? config.colorClaveDesconocida
+      icono = iconoColor(color)
     }
   }
 
@@ -125,6 +133,7 @@ export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccio
     visibles,
     toesPorId,
     icono,
+    color,
     opacidad,
     marca,
   }

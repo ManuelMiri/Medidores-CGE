@@ -225,3 +225,35 @@ test('una marca rechazada no pinta ni fuerza la visibilidad del punto', () => {
   assert.equal(v.oculto, true)
   assert.equal(v.marca ?? null, null)
 })
+
+// El color suelto lo necesita el motor sobre GPU: allá el pin no es un divIcon
+// con un SVG adentro sino una imagen que hay que generar por color. Si `color`
+// y `icono` se separaran, el mapa de GL pintaría un tono y el de Leaflet otro
+// para el mismo punto — y la diferencia solo se vería comparando los dos.
+
+test('sin clave ni marca no hay color: manda el estado de mapeo', () => {
+  const v = vistaDeGrupo([medidor('a', '101')], indiceCon(), config, iconos, false, null)
+  assert.equal(v.color, null)
+  assert.equal(v.icono.nombre, 'pendiente')
+})
+
+test('tomado con clave: el color es el de la clave', () => {
+  const v = vistaDeGrupo([medidor('a', '101')], indiceCon({ instalacion: '101', clave: '26' }), config, iconos, true, null)
+  assert.equal(v.color, config.claves['26'].color)
+  // y es el mismo tono que el icono que usa Leaflet
+  assert.equal(v.icono, iconoColor(v.color))
+})
+
+test('una clave que no está en la tabla sale con el color neutro', () => {
+  const v = vistaDeGrupo([medidor('a', '101')], indiceCon({ instalacion: '101', clave: 'ZZ' }), config, iconos, true, null)
+  assert.equal(v.color, config.colorClaveDesconocida)
+})
+
+test('con varios visibles no hay color: ningún tono representa al grupo', () => {
+  // Es la misma razón por la que el pin con contador usa la imagen del estado:
+  // con dos medidores de claves distintas no hay un color que valga por los dos.
+  const grupo = [medidor('a', '101'), medidor('b', '102')]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '26' }), config, iconos, true, null)
+  assert.equal(v.visibles.length, 2)
+  assert.equal(v.color, null)
+})

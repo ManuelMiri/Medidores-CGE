@@ -309,8 +309,23 @@ export default function Mapa() {
   // a fallar alguna vez. Ver el comentario de la capa satelital, más abajo.
   const [fotoFallo, setFotoFallo] = useState(false)
 
-  // Capa visible, para saber qué cuadros bajar al precargar una ruta.
+  // Capa visible: la usan la precarga de tiles (para saber qué cuadros bajar)
+  // y el motor GL, que no tiene el LayersControl de Leaflet.
   const [capaActiva, setCapaActiva] = useState(capaInicial)
+
+  // En Leaflet la elección se guarda desde el evento baselayerchange; en GL
+  // el botón llama acá. Por eso la escritura al storage vive en los dos lados
+  // y no dentro de RecordarCapa.
+  const cambiarCapa = useCallback((capa) => {
+    setCapaActiva(capa)
+    try { localStorage.setItem(CLAVE_CAPA, capa) } catch { /* sin storage, da igual */ }
+  }, [])
+
+  // Estable: MapaGL la usa dentro de un efecto con dependencias.
+  const avisarErrorUbicacion = useCallback((msg, fatal) => {
+    alert(msg)
+    if (fatal) setMiUbicacionActiva(false)
+  }, [])
   // Descarga de tiles en curso: { ul, hechas, total, fallidas, mensaje }
   const [precarga, setPrecarga] = useState(null)
   // Estable: un objeto nuevo en cada render haría que react-leaflet
@@ -907,7 +922,29 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               Con el pin no se pierde precisión: queda en la coordenada exacta
               donde tocas, da igual el zoom. */}
           {MOTOR_GL ? (
-            <MapaGL grupos={grupos} vistas={vistas} capa={capaActiva} />
+            <MapaGL
+              grupos={grupos}
+              vistas={vistas}
+              seleccionadoId={seleccionadoId}
+              grupoSeleccionado={grupoSeleccionado}
+              esMobil={esMobil}
+              rolUsuario={usuario.rol}
+              toesConfig={toes.config}
+              onElegir={seleccionarMedidor}
+              onElegirGrupo={elegirGrupo}
+              onEditar={abrirFormulario}
+              onEliminar={handleEliminar}
+              onFotoSubida={cargarMedidores}
+              onResolverMarca={resolverMarca}
+              capa={capaActiva}
+              onCambioCapa={cambiarCapa}
+              centroMapa={centroMapa}
+              modoAgregar={modoAgregar}
+              onClickMapa={(coords) => abrirFormulario(null, coords)}
+              nuevoPunto={nuevoPunto}
+              miUbicacionActiva={miUbicacionActiva}
+              onErrorUbicacion={avisarErrorUbicacion}
+            />
           ) : (
           <MapContainer
             center={CENTRO_MAULE} zoom={13} maxZoom={18}
