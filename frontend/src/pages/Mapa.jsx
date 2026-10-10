@@ -711,7 +711,11 @@ export default function Mapa() {
             />
             <MiUbicacion
               activo={miUbicacionActiva}
-              onError={(msg) => { alert(msg); setMiUbicacionActiva(false) }}
+              // `fatal` es solo el permiso denegado. Perder señal un rato es
+              // normal en terreno: ahí se avisa pero el seguimiento sigue
+              // prendido, para no obligar a volver a tocar el botón cada vez
+              // que el GPS se cae bajo unos árboles.
+              onError={(msg, fatal) => { alert(msg); if (fatal) setMiUbicacionActiva(false) }}
             />
             {nuevoPunto && (
               <Marker position={nuevoPunto} icon={iconos.nuevo}>

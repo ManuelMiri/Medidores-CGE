@@ -76,16 +76,47 @@ export default function MiUbicacion({ activo, onError }) {
 
   // GPS en vivo — se actualiza solo mientras 'activo' esté prendido, para
   // no gastar batería de por vida cuando el técnico no lo está usando.
+  const yaAvisoRef = useRef(false)
   useEffect(() => {
-    if (!activo || !navigator.geolocation) return
+    if (!activo) return
+    if (!navigator.geolocation) {
+      onError?.('Este dispositivo no permite obtener la ubicación', true)
+      return
+    }
+    yaAvisoRef.current = false
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        yaAvisoRef.current = false // volvió a haber señal
         setPosicion([pos.coords.latitude, pos.coords.longitude])
         setPrecision(pos.coords.accuracy)
       },
-      () => onError?.('No se pudo obtener tu ubicación'),
-      { enableHighAccuracy: true, maximumAge: 5000 }
+      (err) => {
+        // Decirle al lector QUÉ pasó. "No se pudo obtener tu ubicación" no
+        // distingue entre un permiso denegado (que se arregla en ajustes) y
+        // el GPS apagado o sin fijar posición (que se arregla en terreno), y
+        // son acciones distintas.
+        const falloPermiso = err?.code === 1 // PERMISSION_DENIED
+        const mensaje = falloPermiso
+          ? 'Falta el permiso de ubicación. Dáselo a la app en Ajustes → Aplicaciones → MLA Maule → Permisos.'
+          : err?.code === 3 // TIMEOUT
+            ? 'El GPS está tardando en fijar posición. Si estás bajo techo, sal a cielo abierto.'
+            : 'No hay señal de GPS. Revisa que la ubicación del teléfono esté encendida.'
+
+        // Solo el permiso denegado apaga el seguimiento: no se arregla solo.
+        // Perder señal un rato es normal en terreno, así que ahí se avisa una
+        // vez y se sigue intentando en vez de obligar a volver a tocar el botón.
+        if (falloPermiso) {
+          onError?.(mensaje, true)
+          return
+        }
+        if (yaAvisoRef.current) return
+        yaAvisoRef.current = true
+        onError?.(mensaje, false)
+      },
+      // Sin timeout, watchPosition puede quedarse callado para siempre si el
+      // GPS no fija: ni posición ni error, y el lector no sabe si está roto.
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
     )
 
     return () => navigator.geolocation.clearWatch(watchId)

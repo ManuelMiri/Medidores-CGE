@@ -38,4 +38,23 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Ubicacion para el boton "Ver mi ubicacion" (navigator.geolocation).
+         Sin estas dos lineas el boton NO funciona y no se ve por que: Capacitor
+         pide el permiso en tiempo de ejecucion desde
+         BridgeWebChromeClient.onGeolocationPermissionsShowPrompt, pero Android
+         deniega al instante cualquier permiso que no este declarado aca — sin
+         mostrar dialogo. El WebView recibe PERMISSION_DENIED y la app solo
+         alcanza a decir "no se pudo obtener tu ubicacion".
+
+         FINE y COARSE van juntas a proposito: desde Android 12 el usuario puede
+         conceder solo la aproximada, y Capacitor acepta ese caso. Para ubicar un
+         medidor hace falta la fina, pero es mejor una ubicacion aproximada que
+         ninguna. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- required="false" para no excluir de la instalacion a un telefono sin
+         GPS: el resto de la app funciona igual sin el. -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>
