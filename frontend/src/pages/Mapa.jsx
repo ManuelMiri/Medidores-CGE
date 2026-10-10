@@ -258,25 +258,66 @@ export default function Mapa() {
   // Memoizado para que los objetos `vista` mantengan su identidad entre
   // renders. Si se calcularan dentro del render de la lista, cada uno sería
   // un objeto nuevo y rompería el memo de los marcadores.
-  // Puntos donde ya no hay medidor. Se cuentan aparte de `estado` porque son
+  // Todo lo que muestra el panel Resumen, en UNA pasada sobre los medidores.
+  // Antes eran cuatro `medidores.filter(...)` escritos en el JSX, o sea cuatro
+  // recorridos de la lista entera y cuatro arrays intermedios en CADA render de
+  // Mapa: al escribir una letra en el buscador, al abrir el panel, al tocar un
+  // pin. Nada de eso tiene que ver con el Resumen.
+  //
+  // Los puntos donde ya no hay medidor se cuentan aparte de `estado` porque son
   // dos cosas distintas: `estado` es el mapeo, esto es memoria de terreno.
-  const marcados = useMemo(() => {
-    let confirmados = 0
-    let propuestos = 0
+  const resumen = useMemo(() => {
+    let localizado = 0, pendiente = 0, perdido = 0, revision = 0
+    let confirmados = 0, propuestos = 0
     for (const m of medidores) {
+      if (m.estado === 'localizado') localizado++
+      else if (m.estado === 'pendiente') pendiente++
+      else if (m.estado === 'perdido') perdido++
+      else if (m.estado === 'revision') revision++
+
       if (!m.marcaPermanente) continue
       if (m.marcaPermanente.situacion === 'confirmada') confirmados++
       else propuestos++
     }
-    return { confirmados, propuestos, total: confirmados + propuestos }
+    return {
+      localizado, pendiente, perdido, revision,
+      confirmados, propuestos, marcados: confirmados + propuestos,
+    }
   }, [medidores])
 
-  const vistas = useMemo(
+  // Las vistas van en DOS memos y no en uno, y la razón es el rendimiento al
+  // tocar un pin.
+  //
+  // `seleccionadoId` entra en vistaDeGrupo por una sola cosa: que un medidor
+  // elegido a propósito se vea aunque TOES ya lo haya tomado (si no, buscar una
+  // instalación tomada no mostraría nada y el buscador parecería roto). Pero
+  // tenerlo en las dependencias del memo significaba recalcular los 1.765
+  // grupos en cada toque — cada uno con su Map y sus arrays nuevos — y, peor,
+  // devolver objetos `vista` con identidad nueva para TODOS. Eso rompía el memo
+  // de cada MarcadorGrupo montado, que es justo lo que el culling y la
+  // memoización fueron a arreglar.
+  //
+  // Ahora la base no sabe de la selección, así que conserva su identidad, y
+  // solo se recalcula el grupo donde está el medidor elegido.
+  const vistasBase = useMemo(
     () => grupos.map((g) => vistaDeGrupo(
-      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
+      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, null
     )),
-    [grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId]
+    [grupos, toes.indice, toes.config, toes.verTomados]
   )
+
+  const vistas = useMemo(() => {
+    if (!seleccionadoId) return vistasBase
+    const i = grupos.findIndex((g) => g.medidores.some((m) => m._id === seleccionadoId))
+    // El elegido puede no estar en lo cargado: se busca por instalación en otra
+    // UL y el pin todavía no llegó. Ahí no hay nada que recalcular.
+    if (i === -1) return vistasBase
+    const copia = vistasBase.slice()
+    copia[i] = vistaDeGrupo(
+      grupos[i].medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
+    )
+    return copia
+  }, [vistasBase, grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId])
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -624,15 +665,15 @@ export default function Mapa() {
               </p>
               <div style={{ fontSize: '0.82rem' }}>
                 <div>Total: <strong>{medidores.length}</strong></div>
-                <div style={{ color: 'green' }}>✅ Localizados: <strong>{medidores.filter(m => m.estado === 'localizado').length}</strong></div>
-                <div style={{ color: '#2196F3' }}>🔵 Pendientes: <strong>{medidores.filter(m => m.estado === 'pendiente').length}</strong></div>
-                <div style={{ color: 'red' }}>❌ Perdidos: <strong>{medidores.filter(m => m.estado === 'perdido').length}</strong></div>
-                <div style={{ color: 'orange' }}>⚠️ Revisión: <strong>{medidores.filter(m => m.estado === 'revision').length}</strong></div>
-                {marcados.total > 0 && (
+                <div style={{ color: 'green' }}>✅ Localizados: <strong>{resumen.localizado}</strong></div>
+                <div style={{ color: '#2196F3' }}>🔵 Pendientes: <strong>{resumen.pendiente}</strong></div>
+                <div style={{ color: 'red' }}>❌ Perdidos: <strong>{resumen.perdido}</strong></div>
+                <div style={{ color: 'orange' }}>⚠️ Revisión: <strong>{resumen.revision}</strong></div>
+                {resumen.marcados > 0 && (
                   <div style={{ color: '#A1887F', marginTop: '0.2rem' }}>
-                    🚫 Sin medidor en terreno: <strong>{marcados.confirmados}</strong>
-                    {marcados.propuestos > 0 && (
-                      <span style={{ color: '#718096' }}> (+{marcados.propuestos} por confirmar)</span>
+                    🚫 Sin medidor en terreno: <strong>{resumen.confirmados}</strong>
+                    {resumen.propuestos > 0 && (
+                      <span style={{ color: '#718096' }}> (+{resumen.propuestos} por confirmar)</span>
                     )}
                   </div>
                 )}
