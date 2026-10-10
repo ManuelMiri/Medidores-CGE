@@ -236,6 +236,15 @@ export default function Mapa() {
   // Detectar si es móvil
   const esMobil = window.innerWidth < 768
 
+  // La foto satelital de respaldo (z15) se monta SOLO si la foto buena llegó
+  // a fallar alguna vez. Ver el comentario de la capa satelital, más abajo.
+  const [fotoFallo, setFotoFallo] = useState(false)
+  // Estable: un objeto nuevo en cada render haría que react-leaflet
+  // desenganchara y volviera a enganchar el listener de la capa entera.
+  const manejadoresFoto = useMemo(() => ({
+    tileerror: () => setFotoFallo(true),
+  }), [])
+
   // Junto los medidores que están prácticamente en el mismo punto (mismo
   // poste o misma casa) en un solo pin con contador, porque si no quedan
   // uno encima de otro y no hay forma de tocar los de abajo
@@ -707,6 +716,15 @@ export default function Mapa() {
           <MapContainer
             center={CENTRO_MAULE} zoom={13} maxZoom={18}
             style={{ height: '100%', width: '100%' }}
+            // Leaflet desvanece CADA tile con una transición de opacidad, y
+            // mientras dura mantiene vivo un bucle de requestAnimationFrame
+            // que le reescribe la opacidad a todos los tiles cargados. En el
+            // satelital son tres capas a la vez, o sea decenas de escrituras
+            // de estilo por frame justo mientras arrastras. Apagándolo los
+            // tiles aparecen de golpe en vez de desvanecerse — sobre foto
+            // satelital casi no se nota — y además Leaflet puede podar los
+            // tiles viejos de inmediato en vez de esperar al desvanecido.
+            fadeAnimation={false}
             // Acá estuvo markerZoomAnimation={false} y se quitó a propósito.
             // Ahorra el handler de `zoomanim` por marcador, que con 300 pines
             // pesaba, pero Leaflet lo implementa poniéndole `leaflet-zoom-hide`
@@ -734,6 +752,10 @@ export default function Mapa() {
                   // más lento. Con esto, solo pide tiles nuevos cuando sueltas
                   // el mapa (terminaste de moverlo), no mientras lo arrastras.
                   updateWhenIdle={true}
+                  // Lo mismo para el pinch: por defecto Leaflet rearma la
+                  // rejilla en cada nivel entero que cruza la animación de
+                  // zoom. Con esto la rearma una sola vez, al soltar.
+                  updateWhenZooming={false}
                   crossOrigin="anonymous"
                 />
               </LayersControl.BaseLayer>
@@ -756,29 +778,56 @@ export default function Mapa() {
                       cuadro gris ("Map data not yet available"). Por eso el
                       mapa completo no deja pasar de z18.
 
-                      Por si algún sector raro no tiene ni z18, dejo dos capas:
-                      1) Abajo, la foto hasta z15, que existe en todo Chile.
-                      2) Arriba, la foto buena. Con blankTile=false, donde no
-                         hay foto Esri debería mandar error en vez del gris,
-                         y ahí se ve la de abajo. */}
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={15}
-                    maxZoom={18}
-                    updateWhenIdle={true}
-                    crossOrigin="anonymous"
-                  />
+                      Por si algún sector raro no tiene ni z18 está la foto de
+                      respaldo hasta z15, que existe en todo Chile. Pero ahora
+                      se monta SOLO cuando la foto buena llegó a fallar.
+
+                      Antes estaba siempre, y eso costaba una rejilla entera de
+                      <img> del DOM, sus peticiones y su parte de las 1.500
+                      entradas del caché — midiendo el caché del teléfono, cada
+                      capa de referencia pesaba tanto como la foto misma. Y el
+                      propio README ya había verificado que a z18 la foto buena
+                      carga sin UN SOLO fallo en toda la zona: o sea que el
+                      respaldo era peso muerto el 100 % del tiempo en el área
+                      medida.
+
+                      Lo que se paga: donde la foto buena sí falle, ahora se ve
+                      el cuadro gris un instante hasta que el respaldo monta y
+                      carga. Y una vez montado se queda — también si el
+                      tileerror vino de quedarse sin señal y no de un sector sin
+                      foto. Eso es exactamente lo que hacía antes; lo que se
+                      gana es el caso normal, que es el que corre todo el día.
+
+                      El orden lo fija zIndex y NO el orden de montaje: si no,
+                      el respaldo entraría encima de la foto buena al montarse
+                      tarde y la taparía justo donde se la necesita. */}
+                  {fotoFallo && (
+                    <TileLayer
+                      url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                      maxNativeZoom={15}
+                      maxZoom={18}
+                      updateWhenIdle={true}
+                      updateWhenZooming={false}
+                      zIndex={1}
+                      crossOrigin="anonymous"
+                    />
+                  )}
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
                     maxZoom={18}
                     updateWhenIdle={true}
+                    updateWhenZooming={false}
+                    zIndex={2}
                     crossOrigin="anonymous"
+                    eventHandlers={manejadoresFoto}
                   />
                   <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
                     maxZoom={18}
                     updateWhenIdle={true}
+                    updateWhenZooming={false}
+                    zIndex={3}
                     crossOrigin="anonymous"
                   />
                 </LayerGroup>
