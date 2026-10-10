@@ -18,6 +18,7 @@ import { agruparCercanos } from '../utils/agrupar'
 import { ulsARestaurar } from '../utils/ulsActivas'
 import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
 import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
+import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
 import 'leaflet/dist/leaflet.css'
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
@@ -54,6 +55,55 @@ function InvalidarTamano() {
       window.removeEventListener('orientationchange', recalcular)
     }
   }, [map])
+
+  return null
+}
+
+// Le da al medidor de fluidez una forma de dejar el mapa en una vista exacta.
+// Va por un adaptador y no hablandole a Leaflet directo para que, cuando haya
+// otro motor, la misma herramienta pueda medir los dos y compararlos.
+function RegistrarParaMedicion({ grupos }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!medicionActiva()) return
+    const vista = () => {
+      const c = map.getCenter()
+      return { lat: +c.lat.toFixed(6), lng: +c.lng.toFixed(6), zoom: map.getZoom() }
+    }
+
+    registrarMapaParaMedicion({
+      motor: 'leaflet',
+      // Sin animación: la medición empieza justo después, y una animación en
+      // curso ensuciaría los primeros frames de la corrida.
+      irA: (lat, lng, zoom) => {
+        map.setView([lat, lng], zoom, { animate: false })
+        return vista()
+      },
+
+      // Centra sobre los pines cargados. Hace falta porque una coordenada
+      // escrita a mano puede caer en una zona sin ningún pin, y ahí la
+      // medición deja de decir nada sobre el costo de los marcadores: mide
+      // tiles sobre un mapa vacío. Pasó en la primera corrida anclada.
+      //
+      // El centro es el centroide de los grupos, así que depende solo de los
+      // datos: dos builds con la misma UL cargada miran exactamente lo mismo.
+      irAPines: (zoom) => {
+        if (!grupos.length) return null
+        let lat = 0
+        let lng = 0
+        for (const g of grupos) {
+          lat += g.position[0]
+          lng += g.position[1]
+        }
+        map.setView([lat / grupos.length, lng / grupos.length], zoom, { animate: false })
+        return vista()
+      },
+
+      vista,
+    })
+    return () => registrarMapaParaMedicion(null)
+  }, [map, grupos])
 
   return null
 }
@@ -951,6 +1001,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               </LayersControl.BaseLayer>
             </LayersControl>
             <RecordarCapa onCambio={setCapaActiva} />
+            <RegistrarParaMedicion grupos={grupos} />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <InvalidarTamano />
             <CapturarClick

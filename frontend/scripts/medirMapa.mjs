@@ -31,6 +31,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
+import { conectar, cerrar, evaluar } from './webviewCdp.mjs'
 
 const PAQUETE = 'cl.mla.maule'
 const esWindows = platform() === 'win32'
@@ -118,6 +119,19 @@ function valor(nombre, pordefecto) {
   return i >= 0 && args[i + 1] ? args[i + 1] : pordefecto
 }
 const etiqueta = valor('--etiqueta', 'sin etiqueta')
+// La vista por defecto cae sobre la UL E3505704, la de referencia del README.
+// Fijarla es lo que hace comparables dos corridas: si el mapa queda en otro
+// lado o a otro zoom cambia la cantidad de pines en pantalla, y eso pesa mas
+// que cualquier diferencia de codigo.
+// Por defecto se centra sobre los pines cargados (irAPines), no sobre una
+// coordenada fija: una coordenada escrita a mano puede caer en una zona sin
+// pines, y ahi la corrida mide tiles sobre un mapa vacio en vez de medir
+// marcadores. Ya paso. Con --lat y --lng se puede forzar un punto concreto,
+// que sirve justamente para medir el piso sin marcadores.
+const lat = valor('--lat', null)
+const lng = valor('--lng', null)
+const zoom = Number(valor('--zoom', '16'))
+const sinAnclar = args.includes('--sin-anclar')
 // Menos repeticiones que con swipe: cada arrastre son ~15 llamadas a adb.
 const repeticiones = Number(valor('--repeticiones', '8'))
 const conZoom = args.includes('--zoom')
@@ -174,6 +188,38 @@ console.log(
   ' · gesto: swipe ' + x1 + '->' + x2 + ' en y=' + y +
   ', ' + repeticiones + 'x' + (conZoom ? ' + zoom' : '') + ', sin inercia'
 )
+// Anclar la vista ANTES de medir. Sin esto la medicion no es comparable: ya
+// paso que dos builds dieran 0,3 % y 100 % de frames janky por estar mirando
+// zonas con distinta cantidad de pines, no por el codigo.
+let vista = null
+if (!sinAnclar) {
+  try {
+    const ws = await conectar(adb, PAQUETE)
+    const expr = (lat !== null && lng !== null)
+      ? 'window.fluidez && window.fluidez.irA(' + lat + ', ' + lng + ', ' + zoom + ')'
+      : 'window.fluidez && window.fluidez.irAPines(' + zoom + ')'
+    vista = await evaluar(ws, expr)
+    if (!vista) {
+      console.error('La pagina no expone window.fluidez.')
+      console.error('Prendelo en la consola del WebView con:')
+      console.error("  localStorage.setItem('medirFluidez', 'si')")
+      console.error('y recarga la app. O corre con --sin-anclar para medir igual,')
+      console.error('sabiendo que el resultado no sera comparable con otro build.')
+      console.error('')
+      console.error('Si window.fluidez SI existe, puede ser que no haya ninguna UL')
+      console.error('marcada: sin pines cargados no hay sobre que centrar.')
+      process.exit(1)
+    }
+    console.log('vista anclada: ' + JSON.stringify(vista))
+    // Que termine de pedir los tiles de la vista nueva antes de medir.
+    await new Promise((r) => setTimeout(r, 2500))
+  } catch (err) {
+    console.error('No pude anclar la vista: ' + err.message)
+    console.error('Corre con --sin-anclar si queres medir igual.')
+    process.exit(1)
+  }
+}
+
 console.log('OJO: el panel lateral tiene que estar CERRADO, o el swipe cae sobre el.')
 console.log('midiendo, no toques el telefono...\n')
 
@@ -230,6 +276,19 @@ if (datos.frames < 20) {
     'Revisa que la app este en el mapa y que el swipe no caiga sobre el panel lateral.'
   )
   process.exit(1)
+}
+
+// La densidad de pines va junto a los numeros a proposito: es la variable que
+// ya arruino una tanda de mediciones, y tenerla al lado hace imposible
+// comparar dos corridas que no la compartan.
+if (!sinAnclar) {
+  try {
+    const ws = await conectar(adb, PAQUETE)
+    const v = await evaluar(ws, 'window.fluidez.vista()')
+    datos.pines_dom = v?.pines_dom ?? null
+    datos.motor = v?.motor ?? null
+  } catch { /* ya se midio; no vale la pena fallar por el conteo */ }
+  try { cerrar(adb) } catch { /* el forward puede no estar */ }
 }
 
 console.log('--- ' + etiqueta + ' ---')

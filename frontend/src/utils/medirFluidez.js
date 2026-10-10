@@ -29,6 +29,25 @@
 
 const CLAVE = 'medirFluidez'
 
+/**
+ * Como mover el mapa, puesto por la pagina.
+ *
+ * El medidor no sabe de Leaflet ni de MapLibre a proposito: cada motor le pasa
+ * su propio adaptador y la misma herramienta sirve para comparar los dos, que
+ * es justamente para lo que hace falta.
+ *
+ * Esto existe por un error que costo una tarde: el gesto estaba fijo pero el
+ * centro y el zoom no, asi que entre dos corridas cambiaba la cantidad de
+ * marcadores en pantalla — la variable que mas pesa de todas — y los numeros
+ * se movian entre 0,3 % y 100 % de frames janky sin que el codigo cambiara.
+ * Sin anclar la vista, comparar dos builds no significa nada.
+ */
+let adaptadorMapa = null
+
+export function registrarMapaParaMedicion(adaptador) {
+  adaptadorMapa = adaptador
+}
+
 // 50 ms es el umbral de la Long Tasks API, no un número elegido acá: por debajo
 // de eso el navegador considera que la tarea no alcanzó a costar un frame.
 const UMBRAL_TAREA_MS = 50
@@ -130,6 +149,35 @@ export function iniciarMedicionFluidez() {
       // que es la única forma de leer la consola del APK.
       console.table(r)
       return r
+    },
+
+    /** Deja el mapa EXACTAMENTE en esta vista, sin animacion. */
+    irA(lat, lng, zoom) {
+      adaptadorMapa?.irA(lat, lng, zoom)
+      return api.vista()
+    },
+
+    /** Centra sobre los pines cargados, al zoom pedido. Es la vista que hay
+     *  que usar para medir marcadores: una coordenada a mano puede caer en una
+     *  zona vacia y entonces la corrida mide tiles, no pines. */
+    irAPines(zoom) {
+      const r = adaptadorMapa?.irAPines?.(zoom)
+      return r ? api.vista() : null
+    },
+
+    /** Donde esta el mapa y cuantos pines hay dibujados.
+     *
+     * La cuenta de pines se informa junto a cada medicion para que un cambio
+     * de densidad no pueda volver a pasar inadvertido. En un motor sobre GPU
+     * da 0 porque los pines no son nodos del DOM: eso no es un error, es
+     * literalmente la diferencia que se esta midiendo. */
+    vista() {
+      const v = adaptadorMapa?.vista() ?? null
+      return {
+        ...(v ?? {}),
+        pines_dom: document.querySelectorAll('.leaflet-marker-icon, .maplibregl-marker').length,
+        motor: adaptadorMapa?.motor ?? 'sin adaptador',
+      }
     },
 
     detener() {
