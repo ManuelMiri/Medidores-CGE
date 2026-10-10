@@ -20,6 +20,22 @@
   "diasLogsCargaInicial": 45,
   "colorClaveDesconocida": "#9E9E9E",
 
+  "_comentarioMarcas": [
+    "Claves de TOES que proponen una marca permanente: 'aca ya no hay medidor'.",
+    "Solo van las que significan que el medidor NO ESTA en terreno. Las de",
+    "'no se pudo leer esta vez' (casa cerrada, sin acceso, vidrio empanado) no",
+    "entran a proposito: el medidor sigue ahi y el mes que viene puede leerse.",
+    "",
+    "La 16 'Sin empalme' esta inactiva en TOES: el lector ya no la puede",
+    "elegir, lo reporta como submenu de la 05. Hasta confirmar en que campo",
+    "del log queda ese submenu, sinEmpalme solo se marca a mano desde la app."
+  ],
+
+  "marcasPorClave": {
+    "26": "sitioEriazo",
+    "02": "noEncontrado"
+  },
+
   "claves": {
     "01": { "nombre": "Casa cerrada - Medidor interior",        "activo": true,  "color": "#FB8C00" },
     "02": { "nombre": "Medidor no ubicado",                     "activo": true,  "color": "#1E88E5" },

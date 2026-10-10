@@ -45,6 +45,19 @@ export function estadoToesDe(medidor, indice) {
   )
 }
 
+/** La marca permanente del medidor tal cual está guardada, o null. */
+export const marcaDe = (medidor) => medidor.marcaPermanente ?? null
+
+/**
+ * La marca solo si todavía dice algo sobre el punto. Una rechazada se guarda
+ * para que el sondeo no vuelva a proponer lo mismo, pero el mapa tiene que
+ * pintar ese punto como cualquier otro: alguien ya dijo que ahí sí hay medidor.
+ */
+export const marcaActiva = (medidor) => {
+  const m = marcaDe(medidor)
+  return m && m.situacion !== 'rechazada' ? m : null
+}
+
 /**
  * Decide cómo se ve un pin del mapa. El mapa agrupa los medidores que están a
  * menos de 5 m en un solo pin con contador, así que la decisión es por grupo y
@@ -69,7 +82,11 @@ export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccio
     // que el usuario lo haya elegido a propósito. Esa segunda excepción
     // importa: si no estuviera, buscar una instalación que TOES ya tomó no
     // mostraría nada y el buscador pareceria roto.
-    if (!toes || verTomados || m._id === seleccionadoId) visibles.push(m)
+    // Un punto con marca permanente NO se oculta nunca, aunque TOES lo haya
+    // tomado este ciclo. Es justo lo que el lector nuevo tiene que ver al
+    // empezar la ruta del mes siguiente: "acá ya no hay medidor, no lo
+    // busques". Si se ocultara, la marca no serviría para nada.
+    if (marcaActiva(m) || !toes || verTomados || m._id === seleccionadoId) visibles.push(m)
   }
 
   if (visibles.length === 0) return { oculto: true, visibles, toesPorId }
@@ -78,26 +95,38 @@ export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccio
   // mezclado se ve normal, porque todavía hay algo que ir a buscar ahí.
   const todoTomado = visibles.every((m) => toesPorId.has(m._id))
 
-  // El color de la clave se muestra solo cuando hay un único medidor visible:
-  // con varios no hay un color que represente al grupo, y además el pin con
-  // contador necesita un icono con imagen (iconUrl), que el divIcon de color
-  // no tiene.
+  // La marca manda sobre todo lo demás: es un hecho permanente, mientras que
+  // la clave de TOES es de este ciclo.
+  const marca = visibles.map(marcaActiva).find(Boolean) ?? null
+
+  // El color se muestra solo cuando hay un único medidor visible: con varios
+  // no hay un color que represente al grupo, y además el pin con contador
+  // necesita un icono con imagen (iconUrl), que el divIcon de color no tiene.
   let icono = iconos[visibles[0].estado] || iconos.pendiente
   if (visibles.length === 1) {
+    const marcaSola = marcaActiva(visibles[0])
     const clave = toesPorId.get(visibles[0]._id)?.clave
-    if (clave) {
+    if (marcaSola) {
+      icono = iconoColor(config.etiquetas?.[marcaSola.tipo]?.color ?? config.colorClaveDesconocida)
+    } else if (clave) {
       // Una clave que no esté en la configuración no rompe nada: sale con el
       // color neutro y el popup la muestra como "clave NN".
       icono = iconoColor(config.claves[clave]?.color ?? config.colorClaveDesconocida)
     }
   }
 
+  // Un punto ya decidido se ve en firme; uno solo propuesto, algo más suave,
+  // para que se note que todavía le falta el visto bueno de un supervisor.
+  let opacidad = todoTomado ? 0.35 : 1
+  if (marca) opacidad = marca.situacion === 'confirmada' ? 1 : 0.75
+
   return {
     oculto: false,
     visibles,
     toesPorId,
     icono,
-    opacidad: todoTomado ? 0.35 : 1,
+    opacidad,
+    marca,
   }
 }
 

@@ -21,7 +21,7 @@
 import { memo, useMemo, useState } from 'react'
 import { Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import CapturaFoto from './CapturaFoto'
-import { textoToes } from '../utils/vistaMarcador'
+import { marcaDe, textoToes } from '../utils/vistaMarcador'
 import { iconoConContador, iconoSeleccionado } from '../utils/iconosMapa'
 
 // Margen alrededor de la pantalla, como fracción del alto/ancho visible. Con
@@ -102,6 +102,93 @@ function ContenidoPopupInterno({ grupo, elegido, onElegir, esMobil, renderDetall
   )
 }
 
+const TEXTO_SITUACION = {
+  propuesta: 'lo reportó TOES, falta confirmar',
+  confirmada: 'confirmado en terreno',
+  rechazada: 'se revisó y sí hay medidor',
+}
+
+/**
+ * Aviso de "acá ya no hay medidor" dentro del popup.
+ *
+ * Es lo que ve el lector del mes siguiente —que puede ser otra persona— para
+ * no perder tiempo buscando un medidor que se sacó, se destruyó o se robaron.
+ * Confirmar o rechazar queda para admin y supervisor: el lector reporta desde
+ * TOES, pero descartar un punto para los próximos meses no es decisión suya.
+ */
+function BloqueMarca({ medidor, toesConfig, puedeDecidir, onResolver }) {
+  const [marcando, setMarcando] = useState(false)
+  const marca = marcaDe(medidor)
+  const resolverTipo = (accion, tipo) => onResolver?.(medidor.instalacion, accion, tipo)
+
+  // Sin marca: solo un admin o supervisor puede poner una a mano. Es la única
+  // vía para "sin empalme" — TOES no lo puede reportar — y sirve además para
+  // un eriazo que el lector no alcanzó a registrar en TOES.
+  if (!marca) {
+    if (!puedeDecidir) return null
+    if (!marcando) {
+      return (
+        <button className="btn btn-link btn-sm p-0 mb-1" style={{ fontSize: '0.72rem' }}
+          onClick={() => setMarcando(true)}>
+          marcar que acá ya no hay medidor
+        </button>
+      )
+    }
+    return (
+      <div className="d-grid gap-1 mb-2">
+        {Object.entries(toesConfig?.etiquetas ?? {}).map(([tipo, e]) => (
+          <button key={tipo} className="btn btn-sm btn-outline-dark"
+            style={{ fontSize: '0.72rem', borderLeft: `4px solid ${e.color}` }}
+            onClick={() => { setMarcando(false); resolverTipo('marcar', tipo) }}>
+            {e.nombre}
+          </button>
+        ))}
+        <button className="btn btn-link btn-sm p-0" style={{ fontSize: '0.7rem' }}
+          onClick={() => setMarcando(false)}>cancelar</button>
+      </div>
+    )
+  }
+
+  const etiqueta = toesConfig?.etiquetas?.[marca.tipo]
+  const nombre = etiqueta?.nombre ?? marca.tipo
+  const color = marca.situacion === 'rechazada' ? '#718096' : (etiqueta?.color ?? '#718096')
+  const resolver = (accion) => resolverTipo(accion)
+
+  return (
+    <div style={{
+      border: `1px solid ${color}`, borderLeft: `4px solid ${color}`,
+      borderRadius: '4px', padding: '0.35rem 0.5rem', margin: '0 0 0.4rem',
+      fontSize: '0.78rem',
+    }}>
+      <div style={{ fontWeight: 700, color }}>
+        {marca.situacion === 'rechazada' ? '↩️' : '🚫'} {nombre}
+      </div>
+      <div style={{ color: '#4a5568' }}>
+        {TEXTO_SITUACION[marca.situacion] ?? marca.situacion}
+        {marca.claveToes && ` · clave ${marca.claveToes}`}
+      </div>
+
+      {marca.situacion === 'propuesta' && puedeDecidir && (
+        <div className="d-flex gap-1 mt-1">
+          <button className="btn btn-sm btn-success" style={{ fontSize: '0.72rem' }}
+            onClick={() => resolver('confirmar')}>Confirmar</button>
+          <button className="btn btn-sm btn-outline-secondary" style={{ fontSize: '0.72rem' }}
+            onClick={() => resolver('rechazar')}>Sí hay medidor</button>
+        </div>
+      )}
+      {marca.situacion === 'propuesta' && !puedeDecidir && (
+        <div style={{ color: '#718096', fontStyle: 'italic' }}>
+          Lo confirma un supervisor.
+        </div>
+      )}
+      {marca.situacion !== 'propuesta' && (
+        <button className="btn btn-link btn-sm p-0 mt-1" style={{ fontSize: '0.72rem' }}
+          onClick={() => resolver('quitar')}>quitar la marca</button>
+      )}
+    </div>
+  )
+}
+
 /**
  * Un pin del mapa (un punto, con uno o varios medidores).
  *
@@ -113,7 +200,7 @@ function ContenidoPopupInterno({ grupo, elegido, onElegir, esMobil, renderDetall
  */
 const MarcadorGrupo = memo(function MarcadorGrupo({
   grupo, vista, idGrupo, elegido, marcado, esMobil, rolUsuario, toesConfig,
-  onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida,
+  onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida, onResolverMarca,
 }) {
   const visibles = vista.visibles
   const varios = visibles.length > 1
@@ -141,6 +228,12 @@ const MarcadorGrupo = memo(function MarcadorGrupo({
         {!esMobil && <CerrarPopup />}
       </div>
       <hr style={{ margin: '0.3rem 0' }} />
+      <BloqueMarca
+        medidor={m}
+        toesConfig={toesConfig}
+        puedeDecidir={rolUsuario === 'admin' || rolUsuario === 'supervisor'}
+        onResolver={onResolverMarca}
+      />
       {vista.toesPorId.has(m._id) && (
         <p style={{
           margin: '0 0 0.3rem', fontSize: '0.78rem',
@@ -150,7 +243,7 @@ const MarcadorGrupo = memo(function MarcadorGrupo({
         </p>
       )}
       <p style={{ margin: 0, fontSize: '0.8rem' }}>
-        <strong>Estado:</strong> {m.estado}<br />
+        <strong>Estado del mapeo:</strong> {m.estado}<br />
         <strong>Dirección:</strong> {m.direccion || '—'}<br />
         <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
         <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
@@ -215,7 +308,7 @@ const MarcadorGrupo = memo(function MarcadorGrupo({
 
 export default function CapaMedidores({
   grupos, vistas, seleccionadoId, grupoSeleccionado, esMobil, rolUsuario, toesConfig,
-  onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida,
+  onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida, onResolverMarca,
 }) {
   const map = useMap()
 
@@ -281,6 +374,7 @@ export default function CapaMedidores({
       onEditar={onEditar}
       onEliminar={onEliminar}
       onFotoSubida={onFotoSubida}
+      onResolverMarca={onResolverMarca}
     />
   ))
 }

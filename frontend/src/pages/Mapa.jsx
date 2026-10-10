@@ -11,6 +11,7 @@ import MiUbicacion from '../components/MiUbicacion'
 import PanelToes from '../components/PanelToes'
 import CapaMedidores from '../components/CapaMedidores'
 import { useToes } from '../hooks/useToes'
+import { useMarcasToes } from '../hooks/useMarcasToes'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
@@ -230,6 +231,19 @@ export default function Mapa() {
   // Memoizado para que los objetos `vista` mantengan su identidad entre
   // renders. Si se calcularan dentro del render de la lista, cada uno sería
   // un objeto nuevo y rompería el memo de los marcadores.
+  // Puntos donde ya no hay medidor. Se cuentan aparte de `estado` porque son
+  // dos cosas distintas: `estado` es el mapeo, esto es memoria de terreno.
+  const marcados = useMemo(() => {
+    let confirmados = 0
+    let propuestos = 0
+    for (const m of medidores) {
+      if (!m.marcaPermanente) continue
+      if (m.marcaPermanente.situacion === 'confirmada') confirmados++
+      else propuestos++
+    }
+    return { confirmados, propuestos, total: confirmados + propuestos }
+  }, [medidores])
+
   const vistas = useMemo(
     () => grupos.map((g) => vistaDeGrupo(
       g.medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
@@ -280,6 +294,11 @@ export default function Mapa() {
     // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
     // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
   }, [ulsActivas, cargarMedidores])
+
+  // Lo que TOES dice sobre los puntos donde ya no hay medidor se manda al
+  // servidor, porque la marca tiene que verla el lector del mes siguiente
+  // — que puede ser otra persona y otro teléfono.
+  useMarcasToes(medidores, toes.indice, toes.config, cargarMedidores)
 
   function toggleUl(ul) {
     setUlsActivas(prev =>
@@ -391,6 +410,32 @@ export default function Mapa() {
       alert(err.response?.data?.error || 'Error al guardar')
     } finally { setGuardando(false) }
   }
+
+  // Resolver una marca permanente: confirmarla (el punto queda descartado
+  // para los próximos meses), rechazarla (deja constancia de que alguien dijo
+  // que sí hay medidor, y evita que el sondeo la reponga) o quitarla del todo.
+  const resolverMarca = useCallback(async (instalacion, accion, tipo) => {
+    try {
+      if (accion === 'quitar') {
+        await api.delete(`/medidores/${instalacion}/marca`)
+      } else if (accion === 'marcar') {
+        // Marcado a mano por un admin o supervisor. Son dos llamadas porque
+        // reusa los endpoints que ya existen, y el historial queda honesto:
+        // la propuso y la confirmó la misma persona. Es la única vía para
+        // "sin empalme", que TOES no puede reportar (su clave 16 está
+        // inactiva y va como submenú de la 05).
+        await api.post(`/medidores/${instalacion}/marca`, { tipo })
+        await api.patch(`/medidores/${instalacion}/marca`, { situacion: 'confirmada' })
+      } else {
+        await api.patch(`/medidores/${instalacion}/marca`, {
+          situacion: accion === 'confirmar' ? 'confirmada' : 'rechazada',
+        })
+      }
+      await cargarMedidores()
+    } catch (err) {
+      alert(err.response?.data?.error || 'No se pudo actualizar la marca')
+    }
+  }, [cargarMedidores])
 
   const handleEliminar = useCallback(async (instalacion) => {
     if (!confirm(`¿Eliminar el medidor ${instalacion}?`)) return
@@ -545,6 +590,14 @@ export default function Mapa() {
                 <div style={{ color: '#2196F3' }}>🔵 Pendientes: <strong>{medidores.filter(m => m.estado === 'pendiente').length}</strong></div>
                 <div style={{ color: 'red' }}>❌ Perdidos: <strong>{medidores.filter(m => m.estado === 'perdido').length}</strong></div>
                 <div style={{ color: 'orange' }}>⚠️ Revisión: <strong>{medidores.filter(m => m.estado === 'revision').length}</strong></div>
+                {marcados.total > 0 && (
+                  <div style={{ color: '#A1887F', marginTop: '0.2rem' }}>
+                    🚫 Sin medidor en terreno: <strong>{marcados.confirmados}</strong>
+                    {marcados.propuestos > 0 && (
+                      <span style={{ color: '#718096' }}> (+{marcados.propuestos} por confirmar)</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -740,6 +793,7 @@ export default function Mapa() {
               onEditar={abrirFormulario}
               onEliminar={handleEliminar}
               onFotoSubida={cargarMedidores}
+              onResolverMarca={resolverMarca}
             />
           </MapContainer>
         </div>

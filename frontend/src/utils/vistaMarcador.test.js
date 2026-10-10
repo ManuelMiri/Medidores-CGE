@@ -24,7 +24,7 @@ globalThis.document = {
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-const { vistaDeGrupo, estadoToesDe } = await import('./vistaMarcador.js')
+const { vistaDeGrupo, estadoToesDe, iconoColor } = await import('./vistaMarcador.js')
 const config = (await import('../config/clavesToes.json', { with: { type: 'json' } })).default
 
 // Iconos por estado de mapeo, como los que tiene Mapa.jsx. Lo único que
@@ -152,4 +152,76 @@ test('estadoToesDe no cruza por numeroDeSerie si el punto trae instalación', ()
   assert.equal(estadoToesDe(conInstalacion, idx), null)
   const sinInstalacion = { instalacion: '', numeroDeSerie: 'G123' }
   assert.equal(estadoToesDe(sinInstalacion, idx).instalacion, 'otra')
+})
+
+// --------------------------------------------------------------- marca permanente
+//
+// Lo que se protege acá es el objetivo de toda la funcionalidad: que el lector
+// del mes siguiente —que puede ser otra persona— VEA que en ese punto ya no
+// hay medidor y no pierda tiempo buscándolo.
+
+function conMarca(m, tipo, situacion = 'confirmada') {
+  return { ...m, marcaPermanente: { tipo, situacion, claveToes: '26', cicloOrigen: '2026-10-06' } }
+}
+
+test('un punto marcado NO se oculta aunque TOES lo haya tomado', () => {
+  // El caso que importa: TOES reporta el eriazo cada mes, así que sin esta
+  // excepción el punto quedaría oculto justo para quien necesita verlo.
+  const grupo = [conMarca(medidor('a', '101'), 'sitioEriazo')]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '26' }), config, iconos, false, null)
+  assert.equal(v.oculto, false)
+  assert.deepEqual(v.visibles.map(m => m.instalacion), ['101'])
+})
+
+test('un punto marcado se ve en firme, no atenuado como los tomados', () => {
+  const grupo = [conMarca(medidor('a', '101'), 'sitioEriazo')]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '26' }), config, iconos, false, null)
+  assert.equal(v.opacidad, 1)
+})
+
+test('una marca solo propuesta se ve más suave que una confirmada', () => {
+  const grupo = [conMarca(medidor('a', '101'), 'sitioEriazo', 'propuesta')]
+  const v = vistaDeGrupo(grupo, indiceCon(), config, iconos, false, null)
+  assert.equal(v.opacidad, 0.75)
+  assert.equal(v.marca.situacion, 'propuesta')
+})
+
+test('el pin toma el color del tipo de marca', () => {
+  const grupo = [conMarca(medidor('a', '101'), 'sitioEriazo')]
+  const v = vistaDeGrupo(grupo, indiceCon(), config, iconos, false, null)
+  assert.equal(v.icono, iconoColor(config.etiquetas.sitioEriazo.color))
+})
+
+test('la marca manda sobre el color de la clave de TOES', () => {
+  // La clave es de este ciclo; la marca es un hecho permanente.
+  const grupo = [conMarca(medidor('a', '101'), 'noEncontrado')]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '11' }), config, iconos, false, null)
+  assert.equal(v.icono, iconoColor(config.etiquetas.noEncontrado.color))
+  assert.notEqual(v.icono, iconoColor(config.claves['11'].color))
+})
+
+test('en un grupo mezclado, el marcado arrastra al pin a verse siempre', () => {
+  const grupo = [
+    conMarca(medidor('a', '101'), 'sitioEriazo'),
+    medidor('b', '102'),
+  ]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '26' }, { instalacion: '102' }), config, iconos, false, null)
+  assert.equal(v.oculto, false)
+  assert.deepEqual(v.visibles.map(m => m.instalacion), ['101'])
+})
+
+test('sin marca, nada cambia respecto de antes', () => {
+  const grupo = [medidor('a', '101')]
+  const v = vistaDeGrupo(grupo, indiceCon(), config, iconos, false, null)
+  assert.equal(v.marca, null)
+  assert.equal(v.opacidad, 1)
+})
+
+test('una marca rechazada no pinta ni fuerza la visibilidad del punto', () => {
+  // Alguien ya dijo "acá sí hay medidor": el punto vuelve a comportarse como
+  // cualquier otro, aunque la marca quede guardada para no reproponerla.
+  const grupo = [conMarca(medidor('a', '101'), 'sitioEriazo', 'rechazada')]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '26' }), config, iconos, false, null)
+  assert.equal(v.oculto, true)
+  assert.equal(v.marca ?? null, null)
 })

@@ -214,6 +214,146 @@ router.patch('/:instalacion', proteger, async (req, res) => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// Marca permanente: "acá ya no hay medidor" (ver models/Medidor.js)
+//
+// Son rutas propias y no campos de `camposPermitidos` porque el permiso NO es
+// el mismo para proponer que para confirmar: el lector reporta desde terreno,
+// pero quien decide que un punto queda descartado para los próximos meses es
+// un admin o un supervisor.
+// ---------------------------------------------------------------------------
+
+const TIPOS_DE_MARCA = ['sitioEriazo', 'noEncontrado', 'sinEmpalme']
+
+// Un lector solo puede tocar medidores de sus propias ULs. Mismo criterio que
+// el PATCH de más arriba.
+function filtroPorRol(req) {
+  const filtro = { instalacion: req.params.instalacion }
+  if (req.usuario.rol === 'lector') {
+    filtro.unidadDeLectura = { $in: req.usuario.unidadesLectura }
+  }
+  return filtro
+}
+
+async function aplicar(req, res, cambios, accion) {
+  const medidor = await Medidor.findOneAndUpdate(
+    filtroPorRol(req),
+    {
+      ...cambios,
+      $push: {
+        historial: {
+          usuario: req.usuario._id,
+          nombre: req.usuario.nombre,
+          accion,
+          fecha: new Date(),
+        },
+      },
+    },
+    { new: true, runValidators: true }
+  )
+  if (!medidor) return res.status(404).json({ error: 'Medidor no encontrado o sin acceso' })
+  res.json(medidor)
+}
+
+// POST /api/medidores/:instalacion/marca — proponer
+//
+// Idempotente a propósito: la app la llama al leer el log de TOES y el mismo
+// servicio puede aparecer en varias vueltas del sondeo. Si ya hay una marca
+// confirmada no se toca — una propuesta nueva no puede degradar una decisión
+// que ya tomó un supervisor.
+router.post('/:instalacion/marca', proteger, async (req, res) => {
+  try {
+    const { tipo, claveToes = null, cicloOrigen = null } = req.body ?? {}
+    if (!TIPOS_DE_MARCA.includes(tipo)) {
+      return res.status(400).json({ error: `tipo debe ser uno de: ${TIPOS_DE_MARCA.join(', ')}` })
+    }
+
+    const existente = await Medidor.findOne(filtroPorRol(req)).select('marcaPermanente')
+    if (!existente) return res.status(404).json({ error: 'Medidor no encontrado o sin acceso' })
+    if (existente.marcaPermanente) {
+      const m = existente.marcaPermanente
+      if (m.situacion === 'confirmada' || m.tipo === tipo) return res.json(existente)
+    }
+
+    await aplicar(
+      req,
+      res,
+      {
+        $set: {
+          marcaPermanente: {
+            tipo,
+            situacion: 'propuesta',
+            claveToes,
+            cicloOrigen,
+            propuestaPor: req.usuario._id,
+            fechaPropuesta: new Date(),
+          },
+        },
+      },
+      `marca propuesta → ${tipo}${claveToes ? ` (clave ${claveToes})` : ''}`
+    )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/medidores/:instalacion/marca — confirmar. Solo admin/supervisor.
+//
+// Al confirmar se pone también estado: 'perdido', que es lo que ese valor
+// significa: el medidor ya no está en terreno. El motivo preciso queda en la
+// marca, que es lo que el mapa pinta.
+router.patch('/:instalacion/marca', proteger, soloRol('admin', 'supervisor'), async (req, res) => {
+  try {
+    // req.body?. y no req.body.: en Express 5, una peticion sin cuerpo deja
+    // req.body en undefined y esto reventaba con un 500 en vez del 409.
+    const situacion = req.body?.situacion ?? 'confirmada'
+    if (!['confirmada', 'rechazada'].includes(situacion)) {
+      return res.status(400).json({ error: "situacion debe ser 'confirmada' o 'rechazada'" })
+    }
+
+    const medidor = await Medidor.findOne(filtroPorRol(req)).select('marcaPermanente')
+    if (!medidor) return res.status(404).json({ error: 'Medidor no encontrado o sin acceso' })
+    if (!medidor.marcaPermanente) {
+      return res.status(409).json({ error: 'Este medidor no tiene ninguna marca que resolver' })
+    }
+
+    const cambios = {
+      'marcaPermanente.situacion': situacion,
+      'marcaPermanente.confirmadaPor': req.usuario._id,
+      'marcaPermanente.fechaConfirmacion': new Date(),
+    }
+    // Solo confirmar descarta el punto. Rechazar deja constancia de la
+    // decisión pero no toca el estado del medidor.
+    if (situacion === 'confirmada') cambios.estado = 'perdido'
+
+    await aplicar(
+      req,
+      res,
+      { $set: cambios },
+      `marca ${situacion} → ${medidor.marcaPermanente.tipo}`
+    )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/medidores/:instalacion/marca — quitar
+//
+// Abierto a cualquier rol a propósito: es el lado seguro del error. La app lo
+// llama sola cuando TOES registra una lectura real en un punto marcado, porque
+// esa lectura prueba que el medidor sí está. Como mucho, alguien vuelve a
+// buscar un medidor; lo caro es lo contrario, dejar uno real descartado.
+//
+// No toca `estado`: si un supervisor lo dejó en 'perdido' al confirmar, puede
+// haber otros motivos para que siga así, y ese campo se edita a mano.
+router.delete('/:instalacion/marca', proteger, async (req, res) => {
+  try {
+    await aplicar(req, res, { $unset: { marcaPermanente: '' } }, 'marca quitada')
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // DELETE /api/medidores/:instalacion — solo admin
 router.delete('/:instalacion', proteger, soloRol('admin'), async (req, res) => {
   try {

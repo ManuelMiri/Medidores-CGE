@@ -233,6 +233,54 @@ del `runtimeCaching` del service worker y en el camino crítico del primer dibuj
 mala los pines podían tardar o no aparecer. Tampoco llevan `shadowUrl`, que era un `<img>` **extra por
 marcador**.
 
+### Memoria de terreno: puntos donde ya no hay medidor
+
+Es lo único del mapa que **sobrevive al cierre de ciclo**, y resuelve un problema concreto: si un
+lector confirma que tres puntos son sitio eriazo, antes esa información se perdía y al mes siguiente
+otro lector volvía a perder tiempo buscando medidores que ya no existen.
+
+Vive en `marcaPermanente` dentro del medidor (`backend/models/Medidor.js`), **no** en `estado`. Son
+dos cosas distintas: `estado` dice si esta app tiene el medidor ubicado y documentado, y solo tiene 4
+valores — metiendo ahí el motivo se perdería la diferencia entre "sitio eriazo", "se lo robaron" y "no
+tiene empalme", que en terreno no son lo mismo. Al **confirmar** una marca se pone además
+`estado: 'perdido'`, para que el Resumen y el color del pin queden coherentes.
+
+**TOES propone, una persona decide.** `utils/marcasToes.js` mira la clave del ciclo y propone marca
+solo con las que significan que el medidor **no está**: `26` (sitio eriazo) y `02` (medidor no
+ubicado). Las de "no se pudo leer esta vez" — casa cerrada, vidrio empañado, sin acceso — **no
+proponen nada** a propósito: el medidor sigue ahí y el mes que viene puede leerse. Confirmar es de
+`admin` o `supervisor`: una clave mal puesta por un lector no puede dejar un medidor real descartado
+para siempre.
+
+Tres situaciones, y la tercera no es decorativa:
+
+| Situación | Qué significa | En el mapa |
+|---|---|---|
+| `propuesta` | la reportó TOES, falta confirmar | pin del color del tipo, algo más suave |
+| `confirmada` | una persona la dio por buena | pin del color del tipo, en firme |
+| `rechazada` | alguien revisó y sí hay medidor | se comporta como un punto normal |
+
+`rechazada` existe porque borrar la marca no alcanzaría: TOES sigue teniendo esa clave en el ciclo, así
+que el sondeo la volvería a proponer a los 5 segundos.
+
+**Un punto marcado no se oculta nunca**, aunque TOES lo haya tomado. Es justo lo que el lector nuevo
+necesita ver al empezar la ruta; si se ocultara, la marca no serviría para nada.
+
+**Si TOES registra después una lectura real, la marca se quita sola** — incluso una confirmada. Esa
+lectura prueba que el medidor sí está, y es el lado seguro del error: como mucho alguien vuelve a
+buscar un medidor. Lo caro es lo contrario.
+
+Esto es lo **único** de la integración con TOES que escribe en el backend, y es deliberado: la marca
+tiene que verla el lector del mes siguiente, que puede ser otra persona y otro teléfono, así que no
+puede vivir solo en IndexedDB. Viaja el mínimo — instalación, tipo, clave y ciclo — y nunca la
+dirección, la lectura ni las coordenadas del log.
+
+**"Sin empalme" todavía no llega desde TOES.** Su clave 16 está inactiva: el lector lo reporta como
+submenú de la clave 05, así que `METERREADINGNOTE` trae `05` y el detalle debe estar en otro campo del
+bloque (candidatos vistos en logs reales: `ZZABLHINW2`, `ZZABLHINW3`, `NOTA_APK`, `RESPUESTA`). Hasta
+confirmarlo contra un log real, esa marca solo se pone a mano desde el popup.
+
+
 ### Caché de tiles en el APK
 
 El service worker **con precache** sigue siendo solo del navegador: dentro del WebView, Android conserva
@@ -363,7 +411,7 @@ cd backend
 npm test
 ```
 
-**Frontend — 73 tests** (72 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental, 12 de la visibilidad de los pines y 9 del agrupado por punto. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 97 tests** (96 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental, 20 de la visibilidad de los pines, 16 de qué claves proponen marca permanente y 9 del agrupado por punto. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend

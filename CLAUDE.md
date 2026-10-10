@@ -16,11 +16,18 @@ interno que además lee los logs de TOES del teléfono.
   no tiene una sola llamada que modifique; mantenerlo así.
 - **El contenido de los logs no sale del teléfono.** Traen datos de clientes (direcciones, lecturas,
   coordenadas). Se procesan on-device y solo se persiste: UL, ciclo, instalación, medidor, clave, si
-  hubo lectura y fecha. No hay endpoint ni sincronización, y no debe haberlo.
+  hubo lectura y fecha.
+  - **Única excepción, deliberada: la marca permanente** (`useMarcasToes`). Para que el lector del mes
+    siguiente —otra persona, otro teléfono— vea que en un punto ya no hay medidor, el dato tiene que
+    estar en el servidor. Viaja **solo** instalación, tipo de marca, clave y ciclo. Nunca dirección,
+    lectura, nombre del cliente ni las coordenadas del log. Si hace falta mandar algo más, parar y
+    preguntar.
 - **Nunca commitear logs reales** (`Log_TOES*.txt` está en `.gitignore`). Para tests está el fixture
   anonimizado en `frontend/src/utils/__fixtures__/`.
-- **Nunca borrar** puntos, fotos, descripciones ni etiquetas: solo cambiar su visibilidad. Y **nunca**
-  cambiar etiquetas automáticamente.
+- **Nunca borrar** puntos, fotos, descripciones ni etiquetas: solo cambiar su visibilidad.
+- **TOES propone, una persona decide.** La integración puede *proponer* una marca permanente a partir
+  de una clave, pero nunca darla por buena sola: confirmarla es de `admin` o `supervisor`. Una clave
+  mal puesta por un lector no puede dejar un medidor real descartado para siempre.
 - **`backend/data/seed.js` ejecuta `Medidor.deleteMany({})`.** No correrlo jamás contra el Atlas de
   producción.
 - **La firma del APK no se commitea** (`*.jks`, `*.keystore`, `keystore.properties` en `.gitignore`).
@@ -29,7 +36,7 @@ interno que además lee los logs de TOES del teléfono.
 
 ```bash
 cd frontend
-npm test              # 73 tests con node --test (sin dependencias extra)
+npm test              # 97 tests con node --test (sin dependencias extra)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
 npm run build         # build web (PWA)
@@ -37,7 +44,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 62 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Para probar en el teléfono con `adb`: `adb install -r frontend/android/app/build/outputs/apk/debug/app-debug.apk`.
@@ -55,6 +62,8 @@ bug solo apareció ahí.
 | `frontend/src/utils/toesParser.js` | parseo de los logs de TOES (puro, testeado) |
 | `frontend/src/utils/cursorToes.js` | cursor de lectura incremental, **en bytes** |
 | `frontend/src/utils/toesNativo.js` | puente con el plugin nativo y bucle de lectura |
+| `frontend/src/utils/marcasToes.js` | qué claves proponen marca permanente y cuál la quita |
+| `frontend/src/hooks/useMarcasToes.js` | lo único de TOES que escribe en el backend |
 | `frontend/src/hooks/useToes.js` | une parser + almacén + mapa |
 | `frontend/public/sw-tiles.js` | service worker del APK: cachea tiles, no precachea |
 | `frontend/android/.../toes/ToesPlugin.java` | lee `/TOES` por SAF, solo lectura |
@@ -82,12 +91,15 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-`Develop` está adelante de `main` y es **local, nunca empujada**: no hay respaldo remoto de ese trabajo.
+`Develop` está adelante de `main` y **ya está respaldada en el remoto** (`origin/Develop`).
 
 Pendiente:
 
-- Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar).
-- Etiquetas anticipadas (Fase 4): es lo único que toca el backend.
+- Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
+  producción; en los tests del backend sí).
+- **"Sin empalme" desde TOES.** Es un submenú de la clave 05, así que `METERREADINGNOTE` trae `05` y el
+  detalle tiene que estar en otro campo del bloque (candidatos: `ZZABLHINW2`, `ZZABLHINW3`, `NOTA_APK`,
+  `RESPUESTA`). Hasta confirmarlo con un log real, esa marca solo se pone a mano desde el popup.
 - Firmar el APK para release.
 - Evaluar **MapLibre GL + tiles vectoriales propios**: cerraría la brecha de fluidez con Google Maps y
   quitaría la dependencia de OSM y Esri, que pueden cortar el acceso — ya pasó con CARTO.
