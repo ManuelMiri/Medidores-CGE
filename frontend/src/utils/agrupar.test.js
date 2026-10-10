@@ -129,4 +129,39 @@ describe('agruparCercanos', () => {
     assert.equal(ids.length, 60)
     assert.equal(new Set(ids).size, 60)
   })
+
+  // Los dos que siguen protegen la rejilla espacial que agruparCercanos usa por
+  // dentro. Es un modo de fallo que el O(n^2) anterior no tenia: si la busqueda
+  // no mirara las celdas VECINAS, dos medidores del mismo poste que caen a cada
+  // lado de un borde de celda quedarian en pines separados. Y no se veria como
+  // un error — se veria como un pin de mas, que es justo lo que este archivo
+  // existe para evitar.
+
+  test('un borde de celda no parte un grupo (latitud)', () => {
+    // La celda mide `metros` de lado, asi que su borde en latitud cae en los
+    // multiplos de 5/110540 grados. Se pone uno a cada lado, a 2 m entre si.
+    const ALTO_CELDA = 5 / 110540
+    const borde = Math.round(-35.5 / ALTO_CELDA) * ALTO_CELDA
+    const grupos = agruparCercanos([
+      medidor('a', -71.6, borde - UN_METRO_LAT),
+      medidor('b', -71.6, borde + UN_METRO_LAT),
+    ], 5)
+
+    assert.equal(grupos.length, 1)
+    assert.deepEqual(grupos[0].medidores.map((m) => m._id), ['a', 'b'])
+  })
+
+  test('un borde de celda no parte un grupo (longitud)', () => {
+    // Lo mismo en el otro eje. El ancho de celda se corrige por el coseno de la
+    // latitud, igual que la distancia.
+    const ANCHO_CELDA = 5 / (111320 * Math.cos(-35.5 * Math.PI / 180))
+    const borde = Math.round(-71.6 / ANCHO_CELDA) * ANCHO_CELDA
+    const grupos = agruparCercanos([
+      medidor('a', borde - UN_METRO_LNG, -35.5),
+      medidor('b', borde + UN_METRO_LNG, -35.5),
+    ], 5)
+
+    assert.equal(grupos.length, 1)
+    assert.deepEqual(grupos[0].medidores.map((m) => m._id), ['a', 'b'])
+  })
 })
