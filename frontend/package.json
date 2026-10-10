@@ -12,7 +12,8 @@
     "build:native": "vite build --mode native",
     "android:sync": "npm run build:native && cap sync android",
     "android:apk": "npm run android:sync && node scripts/compilarApk.mjs",
-    "android:open": "cap open android"
+    "android:open": "cap open android",
+    "medir:mapa": "node scripts/medirMapa.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

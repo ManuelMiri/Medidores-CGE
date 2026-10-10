@@ -6,6 +6,7 @@ import { AuthProvider } from './context/AuthContext'
 import App from './App.jsx'
 import './index.css'
 import { registerSW } from 'virtual:pwa-register'
+import { iniciarMedicionFluidez } from './utils/medirFluidez'
 
 // El service worker CON PRECACHE es solo para el navegador, por dos razones
 // distintas que apuntan al mismo lado:
@@ -67,6 +68,15 @@ if (!Capacitor.isNativePlatform()) {
     // Si falla, el mapa funciona igual, solo que sin caché de tiles. No vale
     // la pena molestar al lector con un error por esto.
   })
+}
+
+// Medicion de fluidez del mapa. Inerte salvo que alguien ponga el flag a
+// mano: sin el no crea ni un observer. Queda expuesta en `window` porque se
+// maneja desde la consola del WebView, que es como se depura el APK.
+const medidor = iniciarMedicionFluidez()
+if (medidor) {
+  window.fluidez = medidor
+  console.log('[fluidez] midiendo. fluidez.reiniciar() antes del gesto, fluidez.informe() despues.')
 }
 
 createRoot(document.getElementById('root')).render(
