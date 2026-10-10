@@ -849,15 +849,6 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
           <MapContainer
             center={CENTRO_MAULE} zoom={13} maxZoom={18}
             style={{ height: '100%', width: '100%' }}
-            // Leaflet desvanece CADA tile con una transición de opacidad, y
-            // mientras dura mantiene vivo un bucle de requestAnimationFrame
-            // que le reescribe la opacidad a todos los tiles cargados. En el
-            // satelital son tres capas a la vez, o sea decenas de escrituras
-            // de estilo por frame justo mientras arrastras. Apagándolo los
-            // tiles aparecen de golpe en vez de desvanecerse — sobre foto
-            // satelital casi no se nota — y además Leaflet puede podar los
-            // tiles viejos de inmediato en vez de esperar al desvanecido.
-            fadeAnimation={false}
             // Acá estuvo markerZoomAnimation={false} y se quitó a propósito.
             // Ahorra el handler de `zoomanim` por marcador, que con 300 pines
             // pesaba, pero Leaflet lo implementa poniéndole `leaflet-zoom-hide`
@@ -885,10 +876,6 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                   // más lento. Con esto, solo pide tiles nuevos cuando sueltas
                   // el mapa (terminaste de moverlo), no mientras lo arrastras.
                   updateWhenIdle={true}
-                  // Lo mismo para el pinch: por defecto Leaflet rearma la
-                  // rejilla en cada nivel entero que cruza la animación de
-                  // zoom. Con esto la rearma una sola vez, al soltar.
-                  updateWhenZooming={false}
                   crossOrigin="anonymous"
                 />
               </LayersControl.BaseLayer>
@@ -940,7 +927,6 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                       maxNativeZoom={15}
                       maxZoom={18}
                       updateWhenIdle={true}
-                      updateWhenZooming={false}
                       zIndex={1}
                       crossOrigin="anonymous"
                     />
@@ -950,7 +936,6 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                     url={URL_FOTO}
                     maxZoom={18}
                     updateWhenIdle={true}
-                    updateWhenZooming={false}
                     zIndex={2}
                     crossOrigin="anonymous"
                     eventHandlers={manejadoresFoto}
@@ -959,7 +944,6 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                     url={URL_CAMINOS}
                     maxZoom={18}
                     updateWhenIdle={true}
-                    updateWhenZooming={false}
                     zIndex={3}
                     crossOrigin="anonymous"
                   />
