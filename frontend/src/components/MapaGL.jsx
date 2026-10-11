@@ -170,7 +170,7 @@ function aGeoJson(grupos, vistas, seleccionadoId, grupoSeleccionado) {
 // ------------------------------------------------------------- el componente
 
 export default function MapaGL({
-  grupos, vistas, seleccionadoId, grupoSeleccionado,
+  grupos, vistas, seleccionadoId, grupoSeleccionado, pulsoSeleccion,
   esMobil, rolUsuario, toesConfig,
   onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida, onResolverMarca,
   capa, onCambioCapa,
@@ -338,11 +338,35 @@ export default function MapaGL({
   // Al buscar una instalación se la selecciona antes de que el mapa termine de
   // moverse, y es la selección lo que tiene que abrir el popup: si no, buscar
   // un medidor no mostraría nada y el buscador parecería roto.
+  //
+  // El ref es lo que hace que abra UNA vez por selección. Sin él, el efecto se
+  // vuelve a disparar con cada cambio de `vistas` —y cerrar el popup no
+  // deselecciona el medidor— así que la ventana se cerraba y volvía a aparecer
+  // sola en cuanto algo tocaba los datos: el sondeo de TOES, una marca
+  // propuesta, una foto subida. Se veía como que el popup "no se cierra del
+  // todo", y es lo que reportó el lector.
+  //
+  // Lo que se recuerda es el PULSO y no el id. Buscar dos veces seguidas la
+  // misma instalación no cambia el id, pero sí es una petición nueva de
+  // "mostrame este" y el popup tiene que volver a abrirse; con el id el
+  // segundo intento quedaba mudo.
+  //
+  // `vistas` tiene que seguir en las dependencias: al buscar una instalación de
+  // una UL que no estaba marcada, el medidor se elige ANTES de que su pin
+  // exista, y este efecto es el que lo abre cuando llega.
+  const abiertoPara = useRef(null)
   useEffect(() => {
-    if (!listo || !seleccionadoId) return
+    if (!listo) return
+    if (!seleccionadoId) {
+      abiertoPara.current = null
+      return
+    }
+    if (abiertoPara.current === pulsoSeleccion) return
     const i = vistas.findIndex((v) => !v.oculto && v.visibles.some((m) => m._id === seleccionadoId))
-    if (i !== -1) setAbierto(i)
-  }, [seleccionadoId, vistas, listo])
+    if (i === -1) return
+    abiertoPara.current = pulsoSeleccion
+    setAbierto(i)
+  }, [seleccionadoId, pulsoSeleccion, vistas, listo])
 
   // --------------------------------------------------- montar/quitar popup
   useEffect(() => {

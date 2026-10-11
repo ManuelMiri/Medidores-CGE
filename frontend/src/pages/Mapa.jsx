@@ -291,6 +291,13 @@ export default function Mapa() {
   // también se pinta dorado para que sepas qué punto tocaste
   const [grupoSeleccionado, setGrupoSeleccionado] = useState(null)
 
+  // Cuántas veces se eligió un medidor a propósito. NO es lo mismo que
+  // `seleccionadoId`: buscar dos veces seguidas la MISMA instalación no cambia
+  // el id, pero sí es una petición nueva de "mostrame este" y el popup tiene
+  // que volver a abrirse. Es lo que deja al mapa distinguir una selección nueva
+  // de un simple cambio de datos.
+  const [pulsoSeleccion, setPulsoSeleccion] = useState(0)
+
   // selecciono un medidor y suelto el grupo que hubiera tocado antes.
   // Los callbacks que recibe CapaMedidores van con useCallback porque sus
   // marcadores están memoizados: un callback nuevo en cada render haría que
@@ -298,6 +305,7 @@ export default function Mapa() {
   const seleccionarMedidor = useCallback((id) => {
     setGrupoSeleccionado(null)
     setSeleccionadoId(id)
+    setPulsoSeleccion((n) => n + 1)
   }, [])
 
   const elegirGrupo = useCallback((idGrupo) => {
@@ -940,6 +948,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               vistas={vistas}
               seleccionadoId={seleccionadoId}
               grupoSeleccionado={grupoSeleccionado}
+              pulsoSeleccion={pulsoSeleccion}
               esMobil={esMobil}
               rolUsuario={usuario.rol}
               toesConfig={toes.config}
