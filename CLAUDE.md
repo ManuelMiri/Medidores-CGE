@@ -36,8 +36,9 @@ interno que además lee los logs de TOES del teléfono.
 
 ```bash
 cd frontend
-npm test              # 103 tests con node --test (sin dependencias extra)
+npm test              # 130 tests con node --test (sin dependencias extra)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
+npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
 npm run build         # build web (PWA)
 npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
@@ -56,8 +57,16 @@ bug solo apareció ahí.
 
 | | |
 |---|---|
-| `frontend/src/pages/Mapa.jsx` | el mapa y el panel lateral (~785 líneas) |
-| `frontend/src/components/CapaMedidores.jsx` | los pines: memoizados y con culling por viewport |
+| `frontend/src/pages/Mapa.jsx` | el mapa y el panel lateral; elige el motor según el flag |
+| `frontend/src/components/MapaGL.jsx` | el mapa sobre GPU (MapLibre). El motor nuevo |
+| `frontend/src/components/CapaMedidores.jsx` | los pines de Leaflet: memoizados y con culling |
+| `frontend/src/components/DetalleMedidor.jsx` | el contenido del popup, **compartido por los dos motores** |
+| `frontend/src/utils/pinDeColor.js` | dibuja los pines de color y los de contador para el motor GL |
+| `frontend/src/hooks/useMiUbicacionGL.js` | el punto azul en MapLibre (la contraparte de `MiUbicacion.jsx`) |
+| `frontend/src/utils/medirFluidez.js` | long tasks y frames; se prende con un flag |
+| `frontend/scripts/medirMapa.mjs` | mide la fluidez con un gesto repetible por `adb` |
+| `frontend/scripts/webviewCdp.mjs` | habla con el WebView por el protocolo de DevTools |
+| `frontend/src/utils/tilesDeRuta.js` | qué cuadros bajar para una ruta (puro, testeado) |
 | `frontend/src/utils/agrupar.js` | agrupa medidores del mismo punto (5 m) |
 | `frontend/src/utils/toesParser.js` | parseo de los logs de TOES (puro, testeado) |
 | `frontend/src/utils/cursorToes.js` | cursor de lectura incremental, **en bytes** |
@@ -73,6 +82,14 @@ bug solo apareció ahí.
 
 Están explicadas en el README, pero conviene tenerlas presentes:
 
+- **Un import que falta no lo ve el build.** Sacar `useState` del import de un archivo que lo sigue
+  usando pasa el build, pasa oxlint y pasa los tests — y deja **la app en blanco**. Ya pasó. Por eso
+  `no-undef` está activado en `.oxlintrc.json`, con el entorno declarado por carpeta (browser,
+  node para `scripts/` y tests, serviceworker para `sw-tiles.js`). Si lo tocás, que siga atrapándolo.
+- **El worker de MapLibre no se empaqueta solo.** maplibre-gl 6 lo carga de un archivo aparte que
+  resuelve relativo a la URL de su módulo, y al bundlear esa URL no existe. El mapa se ve igual — la
+  foto satelital es raster y no pasa por el worker — pero la fuente GeoJSON queda en cero features y
+  no dibuja un solo pin, sin ningún error. Se arregla con `?url` + `setWorkerUrl`.
 - **Props de `Marker` con literales.** react-leaflet compara por identidad: un
   `position={[lat, lng]}` o un `eventHandlers={{...}}` creados en el render hacen que **cada** marcador
   ejecute `setLatLng()` y reenganche sus listeners en cada render. Con 300 pines eso se siente.
@@ -94,16 +111,28 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 `Develop` está adelante de `main` y **ya está respaldada en el remoto** (`origin/Develop`).
 
+La rama **`map`** tiene la migración del motor del mapa a MapLibre GL, medida en el teléfono: el p95
+por frame pasa de 57 ms a 16 ms y los marcadores dejan de costar (+19 ms por frame en Leaflet, 0
+medible en GL). Está completa —popups, selección, capas, buscador, ubicación, rotación— pero **detrás
+de un flag**, con Leaflet entero como red de seguridad:
+
+```js
+localStorage.setItem('motorMapa', 'maplibre')   // y recargar
+```
+
 Pendiente:
 
+- **Decidir cuál motor es el de producción.** La distribución es por sideload: un APK malo se arregla
+  reinstalando en cada teléfono, así que conviene un ciclo de ruta con los dos disponibles.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
   producción; en los tests del backend sí).
 - **"Sin empalme" desde TOES.** Es un submenú de la clave 05, así que `METERREADINGNOTE` trae `05` y el
   detalle tiene que estar en otro campo del bloque (candidatos: `ZZABLHINW2`, `ZZABLHINW3`, `NOTA_APK`,
   `RESPUESTA`). Hasta confirmarlo con un log real, esa marca solo se pone a mano desde el popup.
 - Firmar el APK para release.
-- Evaluar **MapLibre GL + tiles vectoriales propios**: cerraría la brecha de fluidez con Google Maps y
-  quitaría la dependencia de OSM y Esri, que pueden cortar el acceso — ya pasó con CARTO.
+- **Tiles vectoriales propios** (PMTiles de la Región del Maule). El cambio de motor ya está hecho;
+  esto es lo otro que faltaba, y quitaría la dependencia de OSM y Esri, que pueden cortar el acceso
+  — ya pasó con CARTO.
 
 ## Estilo
 

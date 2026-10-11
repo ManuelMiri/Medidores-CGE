@@ -206,6 +206,92 @@ una. (Los "~85" del principio de este README son los medidores *sin registrar* q
 el dataset.) El frontend pide `limite=500` por UL activa, así que con una ruta cargada hay entre 170 y
 300 pines, y hasta 1.765 si se activan todas.
 
+### Lo que se midió, y con qué
+
+Medido en el teléfono real (Galaxy A36, Android 16, pantalla de 60 Hz), con `dumpsys gfxinfo`, en la
+UL `E3505704`, a z16, en satelital y **con la vista anclada** para que las corridas sean comparables:
+
+| motor | pines en pantalla | p50 | p95 | frames janky |
+|---|---|---|---|---|
+| Leaflet | 0 | 22 ms | 36–53 ms | 50–62 % |
+| Leaflet | ~130 | **41 ms** | **57 ms** | 94–100 % |
+| MapLibre GL | 0 | 13 ms | 17 ms | 2,5 % |
+| MapLibre GL | ~130 | **13 ms** | **16 ms** | 1,4–2,4 % |
+
+Lo que dice esa tabla: en Leaflet **los marcadores cuestan +19 ms por frame**. Solos se comen más que
+el presupuesto entero de un frame a 60 Hz (16,7 ms), y no hay forma de arreglarlo dentro de Leaflet
+porque son `<img>` del DOM que el navegador reposiciona uno por uno. En MapLibre son sprites de una
+capa `symbol` y **no cuestan nada medible**: el p95 queda por debajo del presupuesto, o sea que el
+mapa llega a 60 fps donde antes andaba en unos 17.
+
+La herramienta para medirlo vive en el repo, porque sin ella estos números no se pueden repetir:
+
+```bash
+cd frontend
+npm run medir:mapa -- --etiqueta "lo que estés probando"
+```
+
+Tres cosas de ese script costaron y conviene no volver a pisarlas:
+
+- **El gesto lo hace `adb`, no el dedo.** Arrastrar a mano nunca es dos veces el mismo gesto, así que
+  lo que se mide termina siendo la diferencia del dedo y no la del código.
+- **El arrastre va con `input motionevent` y no con `input swipe`.** Con `swipe` los resultados
+  alternaban entre 90 % y 35 % de frames janky sin que cambiara nada: `swipe` suelta el dedo con
+  velocidad, Leaflet hace *fling* y el mapa termina en una zona distinta cada vez, a veces con los
+  tiles cacheados y a veces no. Con `motionevent` el dedo se levanta quieto y no hay inercia.
+- **El centro y el zoom se anclan antes de medir**, por el protocolo de DevTools del WebView
+  (`scripts/webviewCdp.mjs`). Sin eso cambia la cantidad de marcadores en pantalla —la variable que
+  más pesa de todas— y dos builds dan 0,3 % y 100 % de janky sin que el código tenga nada que ver.
+  Eso pasó, y las conclusiones de esa tanda hubo que tirarlas. Por eso **la cuenta de pines sale en la
+  tabla junto a los tiempos**: una corrida con otra densidad no puede volver a pasar inadvertida.
+
+### El motor sobre GPU (MapLibre GL)
+
+`components/MapaGL.jsx`. Se prende con un flag, porque Leaflet sigue entero como red de seguridad:
+
+```js
+localStorage.setItem('motorMapa', 'maplibre')   // y recargar
+localStorage.removeItem('motorMapa')            // volver a Leaflet
+```
+
+**No cambia el aspecto, y es un requisito, no un gusto**: la gota con el contador rojo es la identidad
+del mapa. Se usan los MISMOS PNG de `utils/iconosMapa.js`, con el mismo anclaje abajo, y el contador
+se dibuja con el mismo círculo y el mismo borde que le da `index.css` a los de Leaflet.
+
+Lo que hubo que resolver distinto:
+
+- **Los pines de color por clave de TOES.** En Leaflet son un `divIcon` con un SVG y el color sale del
+  atributo `fill`; en MapLibre un color nuevo es una IMAGEN nueva. Teñir tampoco alcanzaba: MapLibre
+  sabe teñir imágenes SDF pero un SDF es de un solo color, y este pin tiene la gota, su borde blanco y
+  el círculo blanco del medio. `utils/pinDeColor.js` los dibuja en un canvas con exactamente la misma
+  geometría, y `vistaDeGrupo` ahora devuelve también el hex suelto para que la regla de qué color le
+  toca a cada punto siga escrita en un solo lado.
+- **El contador va dentro de la imagen del pin**, no como texto de una capa. Dibujarlo como texto
+  obliga a declarar `glyphs`, o sea archivos de fuente que MapLibre pide **por red** para que el mapa
+  se vea completo. Depender de un host ajeno para eso es justo lo que ya pasó con CARTO.
+- **El worker.** maplibre-gl 6 lo carga de un archivo aparte que resuelve relativo a la URL de su
+  propio módulo, y al bundlear esa URL deja de existir. El síntoma es brutal: el mapa se ve, la foto
+  satelital y los caminos cargan (son raster y no pasan por el worker) pero la fuente GeoJSON se queda
+  en cero features y no dibuja un solo pin, **sin un error en la consola ni en el evento `error` del
+  mapa**. Se arregla con `?url` + `setWorkerUrl`.
+- **El popup.** Leaflet movía el mapa solo para que entrara (`autoPanPadding`); MapLibre no tiene
+  equivalente. Ahora se corre el mapa lo mínimo, y el margen de arriba son 58 px y no el borde del
+  canvas, porque el buscador **flota** sobre el mapa. Además espera a que el mapa deje de moverse: un
+  `panBy` en medio del `easeTo` del buscador lo cancela y dejaba el zoom a mitad de camino.
+- **El contenido del popup es el mismo componente para los dos motores** (`DetalleMedidor.jsx`). Si
+  cada uno tuviera su copia, un arreglo en el bloque de marca permanente o en el botón de foto quedaría
+  aplicado en uno solo, y la diferencia no se vería hasta que alguien en terreno usara el otro.
+
+**El mapa ahora se puede rotar**, con dos dedos. En Leaflet no se podía porque rotar era un truco de
+CSS sobre el contenedor, y ahí sí rompía el clic para colocar un punto; en MapLibre la rotación es una
+propiedad de la cámara, así que `e.lngLat` sale bien a cualquier ángulo y los pines, los contadores y
+el punto azul se quedan derechos solos. Sirve de verdad en terreno: girar el mapa hacia donde uno
+camina es la diferencia entre leer el mapa y traducirlo mentalmente. Van con ella la brújula del
+control de zoom —la única forma de volver al norte sin pelearse con los dedos— y la corrección del
+rumbo de "mi ubicación", que le resta el ángulo del mapa: sin eso, con el mapa girado 90° la flecha
+apuntaría 90° equivocados **y seguiría pareciendo correcta**. La inclinación queda apagada: sobre foto
+satelital desubica más de lo que ayuda.
+
 **Los props de `Marker` tienen que ser estables.** react-leaflet compara por identidad. Un
 `position={[lat, lng]}` escrito como literal en el render da siempre distinto, y entonces cada
 marcador ejecuta `marker.setLatLng()` — una escritura de layout — en cada render; un
@@ -343,8 +429,14 @@ borrosa pero usable por un cuadro gris en un sector sin cobertura, justo en los 
 
 ### Lo que falta
 
-- **El techo es la arquitectura.** Google Maps usa tiles vectoriales sobre GPU; esto son tiles raster y
-  marcadores de DOM. Esa diferencia no se cierra sin cambiar de motor (MapLibre GL).
+- **Decidir cuál motor es el de producción.** MapLibre está completo y medido, pero sigue detrás del
+  flag: la distribución es por sideload, así que un APK malo se arregla reinstalando en cada teléfono.
+  Conviene usarlo al menos un ciclo de ruta con Leaflet todavía disponible antes de darlo por el
+  default.
+- **Los tiles siguen siendo raster y de Esri.** El cambio de motor no hace que Esri responda más
+  rápido: eso lo ataca la precarga de la ruta. El paso siguiente sería un mapa base vectorial propio
+  (PMTiles de la Región del Maule), que además sacaría la dependencia de OSM y de Esri — los dos
+  pueden cortar el acceso, como ya pasó con CARTO.
 
 
 ## Autenticación y autorización
