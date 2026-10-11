@@ -47,7 +47,7 @@ import { ContenidoPopup, DetalleMedidor } from './DetalleMedidor'
 import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS } from '../config/capasMapa'
 import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
 import { useMiUbicacionGL } from '../hooks/useMiUbicacionGL'
-import { pinDeColor, nombreDePinDeColor } from '../utils/pinDeColor'
+import { pinDeColor, nombreDePinDeColor, pinConContador, nombreConContador } from '../utils/pinDeColor'
 import pinVerde2x from '../assets/pines/marker-icon-2x-green.png'
 import pinRojo2x from '../assets/pines/marker-icon-2x-red.png'
 import pinAzul2x from '../assets/pines/marker-icon-2x-blue.png'
@@ -72,12 +72,6 @@ const PINES = {
 // Los PNG son los @2x (50x82) y se declaran con pixelRatio 2, así que en
 // pantalla miden los mismos 25x41 que en Leaflet.
 const RATIO_DE_LOS_PNG = 2
-
-// El contador va donde lo pone index.css para los pines de Leaflet: arriba a la
-// derecha, pisando un poco la gota. Con el icono anclado abajo y midiendo
-// 25x41, eso cae en estos píxeles respecto del ancla.
-const CORRIMIENTO_CONTADOR = [13.5, -40]
-const RADIO_CONTADOR = 13
 
 const FUENTE = 'medidores'
 const CAPA_PINES = 'pines'
@@ -126,11 +120,11 @@ function estiloDeCapas(capa, conRespaldo) {
   const { sources, layers } = fuentesYCapas(capa, conRespaldo)
   return {
     version: 8,
-    // Sin glyphs no hay texto, y el contador ES texto. Se piden a demotiles
-    // mientras esto se prueba; antes de que este motor sea el de producción hay
-    // que servirlos propios, porque depender de un host ajeno para que el mapa
-    // funcione es exactamente lo que ya pasó con CARTO.
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    // Sin `glyphs` a propósito. El único texto del mapa era el número del
+    // contador, y ahora va compuesto dentro de la imagen del pin (ver
+    // utils/pinDeColor.js). Declarar glyphs significaría que MapLibre pida
+    // archivos de fuente por red para que el mapa se vea completo — y depender
+    // de un host ajeno para eso es justo lo que ya pasó con CARTO.
     sources,
     layers,
   }
@@ -161,14 +155,12 @@ function aGeoJson(grupos, vistas, seleccionadoId, grupoSeleccionado) {
         // clave con que TOES lo tomó, o el tipo de marca permanente), va el
         // pin de ese color; en último caso, el del estado de mapeo. Es el
         // mismo orden de prioridades que aplica la capa de Leaflet.
-        icono: marcado
-          ? 'seleccionado'
-          : vista.color
-            ? nombreDePinDeColor(vista.color)
-            : (visibles[0].estado in PINES ? visibles[0].estado : 'pendiente'),
+        icono: iconoDe(vista, marcado),
+        // `marcado` aparte del icono: el orden de dibujado lo decide esta
+        // propiedad, no el nombre de la imagen, que ahora lleva el contador.
+        marcado,
         opacidad: vista.opacidad ?? 1,
         cuenta: visibles.length,
-        etiqueta: visibles.length > 1 ? String(visibles.length) : '',
       },
     })
   }
@@ -263,7 +255,7 @@ export default function MapaGL({
 
     mapa.on('load', async () => {
       await cargarIconos(mapa)
-      registrarColores(mapa, datosRef.current.vistas)
+      registrarImagenes(mapa, datosRef.current.vistas)
       agregarCapaDePines(mapa, datosRef.current)
 
       mapa.on('click', CAPA_PINES, (e) => {
@@ -312,7 +304,7 @@ export default function MapaGL({
     // pide una imagen que no existe, MapLibre no dibuja ese pin y además lo
     // avisa por consola en cada frame. Son pocos y se generan una sola vez
     // por color, no por punto.
-    registrarColores(mapa, vistas)
+    registrarImagenes(mapa, vistas)
     mapa.getSource(FUENTE)?.setData(geojson)
   }, [geojson, vistas, listo])
 
@@ -328,7 +320,7 @@ export default function MapaGL({
       cargarIconos(mapa).then(() => {
         // setStyle también se lleva las imágenes, así que los colores hay que
         // volver a registrarlos.
-        registrarColores(mapa, datosRef.current.vistas)
+        registrarImagenes(mapa, datosRef.current.vistas)
         agregarCapaDePines(mapa, datosRef.current)
         mapa.getSource(FUENTE)?.setData(datosActuales(datosRef.current))
       })
@@ -575,32 +567,81 @@ export default function MapaGL({
 const datosActuales = (d) => aGeoJson(d.grupos, d.vistas, d.seleccionadoId, d.grupoSeleccionado)
 
 /**
- * Deja registrados los pines de los colores que aparezcan en los datos.
+ * Qué imagen le toca a un grupo.
  *
- * Son los de la clave con que TOES tomó el punto y los del tipo de marca
- * permanente. Se generan una vez por color — la tabla tiene 34 claves y un
- * puñado de etiquetas, así que el techo es bajo — y hasta que no están, el
- * estilo pediría una imagen inexistente y ese pin no se dibujaría.
+ * El orden de prioridades es el mismo que aplica la capa de Leaflet: dorado si
+ * está elegido, el color propio del punto (la clave con que TOES lo tomó, o el
+ * tipo de marca permanente) y si no el estado de mapeo. Cuando hay varios
+ * medidores, el contador va DENTRO de la imagen.
  */
-function registrarColores(mapa, vistas) {
+function iconoDe(vista, marcado) {
+  const visibles = vista.visibles
+  const base = marcado
+    ? 'seleccionado'
+    : vista.color
+      ? nombreDePinDeColor(vista.color)
+      : (visibles[0].estado in PINES ? visibles[0].estado : 'pendiente')
+  return visibles.length > 1 ? nombreConContador(base, visibles.length) : base
+}
+
+/**
+ * Deja registradas las imágenes que los datos vayan a pedir.
+ *
+ * Dos familias: los pines de un color (la clave de TOES o el tipo de marca) y
+ * los pines con contador. Las dos se generan una sola vez y quedan. El techo es
+ * bajo: la tabla tiene 34 claves y los grupos rara vez pasan de una decena.
+ *
+ * Hay que hacerlo ANTES de mandar los datos: si el estilo pide una imagen que
+ * no existe, MapLibre no dibuja ese pin y lo avisa por consola en cada frame.
+ */
+function registrarImagenes(mapa, vistas) {
+  const cuentas = new Set()
+
   for (const v of vistas) {
-    if (v.oculto || !v.color) continue
-    const nombre = nombreDePinDeColor(v.color)
-    if (mapa.hasImage(nombre)) continue
-    try {
-      const { data, pixelRatio } = pinDeColor(v.color, RATIO_DE_LOS_PNG)
-      mapa.addImage(nombre, data, { pixelRatio })
-    } catch { /* un color que no se puede dibujar cae al pin del estado */ }
+    if (v.oculto) continue
+
+    if (v.color) {
+      const nombre = nombreDePinDeColor(v.color)
+      if (!mapa.hasImage(nombre)) {
+        try {
+          const { data, pixelRatio } = pinDeColor(v.color, RATIO_DE_LOS_PNG)
+          mapa.addImage(nombre, data, { pixelRatio })
+        } catch { /* un color que no se puede dibujar cae al pin del estado */ }
+      }
+    }
+
+    if (v.visibles.length > 1) cuentas.add(v.visibles.length)
+  }
+
+  // El contador siempre cae sobre un pin de estado o sobre el dorado del
+  // seleccionado: el color propio solo existe cuando hay UN medidor visible.
+  for (const cuenta of cuentas) {
+    for (const base of Object.keys(PINES)) {
+      const nombre = nombreConContador(base, cuenta)
+      if (mapa.hasImage(nombre) || !imagenesBase.has(base)) continue
+      try {
+        const { data, pixelRatio } = pinConContador(imagenesBase.get(base), cuenta, RATIO_DE_LOS_PNG)
+        mapa.addImage(nombre, data, { pixelRatio })
+      } catch { /* sin contador se ve el pin pelado; no se rompe el mapa */ }
+    }
   }
 }
+
+// Las imágenes ya decodificadas, para poder componerles el contador encima sin
+// volver a bajarlas. Sobrevive a un cambio de capa, que borra las del mapa.
+const imagenesBase = new Map()
 
 async function cargarIconos(mapa) {
   // Los mismos PNG que usa Leaflet, así que la silueta es idéntica.
   await Promise.all(Object.entries(PINES).map(async ([nombre, url]) => {
     try {
-      if (mapa.hasImage(nombre)) return
-      const img = await mapa.loadImage(url)
-      if (!mapa.hasImage(nombre)) mapa.addImage(nombre, img.data, { pixelRatio: RATIO_DE_LOS_PNG })
+      if (!imagenesBase.has(nombre)) {
+        const img = await mapa.loadImage(url)
+        imagenesBase.set(nombre, img.data)
+      }
+      if (!mapa.hasImage(nombre)) {
+        mapa.addImage(nombre, imagenesBase.get(nombre), { pixelRatio: RATIO_DE_LOS_PNG })
+      }
     } catch { /* un icono que no carga no puede tumbar el mapa */ }
   }))
 }
@@ -624,46 +665,11 @@ function agregarCapaDePines(mapa, datos) {
       'icon-ignore-placement': true,
       // El elegido va encima de los demás cuando están pegados, igual que el
       // zIndexOffset que tenía en Leaflet.
-      'symbol-sort-key': ['case', ['==', ['get', 'icono'], 'seleccionado'], 1, 0],
+      'symbol-sort-key': ['case', ['get', 'marcado'], 1, 0],
     },
     paint: { 'icon-opacity': ['get', 'opacidad'] },
   })
 
-  // El contador: círculo rojo con borde blanco y el número encima, en la misma
-  // posición que .pin-grupo-contador de index.css.
-  mapa.addLayer({
-    id: 'contador-fondo',
-    type: 'circle',
-    source: FUENTE,
-    filter: ['>', ['get', 'cuenta'], 1],
-    paint: {
-      'circle-radius': RADIO_CONTADOR,
-      'circle-color': '#c53030',
-      'circle-stroke-color': '#ffffff',
-      'circle-stroke-width': 2,
-      'circle-translate': CORRIMIENTO_CONTADOR,
-      'circle-translate-anchor': 'viewport',
-    },
-  })
-
-  mapa.addLayer({
-    id: 'contador-texto',
-    type: 'symbol',
-    source: FUENTE,
-    filter: ['>', ['get', 'cuenta'], 1],
-    layout: {
-      'text-field': ['get', 'etiqueta'],
-      'text-font': ['Noto Sans Bold'],
-      'text-size': 13,
-      'text-allow-overlap': true,
-      'text-ignore-placement': true,
-    },
-    paint: {
-      'text-color': '#ffffff',
-      'text-translate': CORRIMIENTO_CONTADOR,
-      'text-translate-anchor': 'viewport',
-    },
-  })
 }
 
 /**
