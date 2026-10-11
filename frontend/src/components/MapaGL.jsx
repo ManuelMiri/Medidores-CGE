@@ -384,8 +384,11 @@ export default function MapaGL({
     // se centra el punto, que es lo que hacía Leaflet: mover de más desubica al
     // lector, que estaba mirando otra parte del mapa.
     //
-    // En un frame siguiente porque recién ahí el popup tiene su alto real.
-    requestAnimationFrame(() => {
+    // Si el mapa viene moviéndose —el buscador acaba de centrar el medidor—
+    // hay que esperar a que termine. Un panBy en medio de un easeTo lo CANCELA,
+    // y el mapa se queda a mitad de camino: buscar una instalación dejaba el
+    // zoom en 16,08 en vez de los 17 que pidió el buscador.
+    const acomodar = () => requestAnimationFrame(() => {
       const el = popupRef.current?.getElement()
       if (!el) return
       const caja = el.getBoundingClientRect()
@@ -406,6 +409,9 @@ export default function MapaGL({
 
       if (dx || dy) mapa.panBy([dx, dy], { duration: 200 })
     })
+
+    if (mapa.isMoving()) mapa.once('moveend', acomodar)
+    else acomodar()
   }, [abierto, grupos, esMobil, listo])
 
   // ------------------------------------------------- el punto nuevo a colocar
