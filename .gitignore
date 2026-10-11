@@ -15,6 +15,8 @@ Log_TOES*.txt
 *.keystore
 keystore.properties
 
-# Los APK que se reparten a mano. Se compilan, no se versionan: son 5 MB de
-# binario que ademas quedarian desactualizados al dia siguiente.
+# Lo que se arma para repartir a mano: el APK y las instrucciones que lo
+# acompanan. Se generan por entrega, no se versionan: el APK son 5 MB de
+# binario y las dos cosas quedan viejas en cuanto sube la version.
 *.apk
+MLA-Maule-*.txt
