@@ -113,17 +113,20 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 La rama **`map`** tiene la migración del motor del mapa a MapLibre GL, medida en el teléfono: el p95
 por frame pasa de 57 ms a 16 ms y los marcadores dejan de costar (+19 ms por frame en Leaflet, 0
-medible en GL). Está completa —popups, selección, capas, buscador, ubicación, rotación— pero **detrás
-de un flag**, con Leaflet entero como red de seguridad:
+medible en GL). **MapLibre es el motor por defecto**; Leaflet sigue entero como red de seguridad,
+porque con sideload un problema en terreno no se arregla publicando:
 
 ```js
-localStorage.setItem('motorMapa', 'maplibre')   // y recargar
+localStorage.setItem('motorMapa', 'leaflet')   // volver a Leaflet, y recargar
 ```
+
+**Todo lo que toque el mapa hay que probarlo en los DOS motores.** Ya pasó que un cambio rompiera el
+de Leaflet —la app en blanco— sin que lo vieran el build, oxlint ni los 130 tests, porque el archivo
+que se rompió solo se monta en esa rama.
 
 Pendiente:
 
-- **Decidir cuál motor es el de producción.** La distribución es por sideload: un APK malo se arregla
-  reinstalando en cada teléfono, así que conviene un ciclo de ruta con los dos disponibles.
+- Sacar Leaflet cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
   producción; en los tests del backend sí).
 - **"Sin empalme" desde TOES.** Es un submenú de la clave 05, así que `METERREADINGNOTE` trae `05` y el

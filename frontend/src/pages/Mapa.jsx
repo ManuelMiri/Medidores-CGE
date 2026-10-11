@@ -251,13 +251,26 @@ function RecordarCapa({ onCambio }) {
 // Se resuelve una vez: no puede cambiar durante la sesión.
 const puedePrecargar = hayPrecarga()
 
-// Motor del mapa. Es un SPIKE detrás de un flag, no un reemplazo: sirve para
-// medir si pasar los pines a la GPU vale la pena antes de reescribir popups,
-// formularios y captura de fotos, que es donde está el trabajo de verdad.
-// Se prende desde la consola del WebView:
-//   localStorage.setItem('motorMapa', 'maplibre')
+// Motor del mapa. El de produccion es MapLibre, sobre GPU.
+//
+// Medido en el telefono (A36, z16, misma zona, misma UL, con la vista anclada):
+// el p95 por frame pasa de 57 ms a 16 ms, o sea por debajo del presupuesto de
+// 16,7 ms de un frame a 60 Hz, y los ~130 marcadores de una ruta dejan de
+// costar +19 ms por frame para no costar nada medible.
+//
+// Leaflet se queda como RED DE SEGURIDAD, no por indecision: la distribucion es
+// por sideload, asi que si algo aparece en terreno no hay forma de publicar un
+// arreglo — hay que reinstalar en cada telefono. Teniendo el motor viejo a un
+// flag de distancia, el lector puede seguir trabajando el mismo dia.
+//
+// Para volver a Leaflet, desde la consola del WebView:
+//   localStorage.setItem('motorMapa', 'leaflet')
+//
+// Se lee UNA vez al cargar el modulo: cambiar de motor en caliente obligaria a
+// desmontar y volver a montar el mapa entero, y no vale la pena por algo que se
+// toca una vez cada varios meses.
 const MOTOR_GL = (() => {
-  try { return localStorage.getItem('motorMapa') === 'maplibre' } catch { return false }
+  try { return localStorage.getItem('motorMapa') !== 'leaflet' } catch { return true }
 })()
 
 export default function Mapa() {

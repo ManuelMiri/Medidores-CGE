@@ -247,12 +247,17 @@ Tres cosas de ese script costaron y conviene no volver a pisarlas:
 
 ### El motor sobre GPU (MapLibre GL)
 
-`components/MapaGL.jsx`. Se prende con un flag, porque Leaflet sigue entero como red de seguridad:
+`components/MapaGL.jsx`. **Es el motor de producción.** Leaflet sigue entero como red de seguridad,
+a un flag de distancia:
 
 ```js
-localStorage.setItem('motorMapa', 'maplibre')   // y recargar
-localStorage.removeItem('motorMapa')            // volver a Leaflet
+localStorage.setItem('motorMapa', 'leaflet')   // volver a Leaflet, y recargar
+localStorage.removeItem('motorMapa')           // volver a MapLibre
 ```
+
+Leaflet se queda por una razón concreta y no por indecisión: la distribución es por **sideload**, así
+que si algo aparece en terreno no hay forma de publicar un arreglo — habría que reinstalar en cada
+teléfono. Con el motor viejo a un flag de distancia, el lector sigue trabajando el mismo día.
 
 **No cambia el aspecto, y es un requisito, no un gusto**: la gota con el contador rojo es la identidad
 del mapa. Se usan los MISMOS PNG de `utils/iconosMapa.js`, con el mismo anclaje abajo, y el contador
@@ -429,10 +434,10 @@ borrosa pero usable por un cuadro gris en un sector sin cobertura, justo en los 
 
 ### Lo que falta
 
-- **Decidir cuál motor es el de producción.** MapLibre está completo y medido, pero sigue detrás del
-  flag: la distribución es por sideload, así que un APK malo se arregla reinstalando en cada teléfono.
-  Conviene usarlo al menos un ciclo de ruta con Leaflet todavía disponible antes de darlo por el
-  default.
+- **Sacar Leaflet, cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.** Hoy conviven los
+  dos a propósito (ver arriba), pero mantener dos motores tiene un costo: todo lo que toque el mapa
+  hay que probarlo dos veces, y ya pasó que un cambio rompiera el de Leaflet sin que lo vieran ni el
+  build ni el linter ni los tests.
 - **Los tiles siguen siendo raster y de Esri.** El cambio de motor no hace que Esri responda más
   rápido: eso lo ataca la precarga de la ruta. El paso siguiente sería un mapa base vectorial propio
   (PMTiles de la Región del Maule), que además sacaría la dependencia de OSM y de Esri — los dos
