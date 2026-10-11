@@ -18,7 +18,7 @@
 //   2. Solo se dibujan los pines que caen en la pantalla (culling). El resto
 //      no existe en el DOM, así que Leaflet no los reposiciona en cada zoom.
 
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { ContenidoPopup, DetalleMedidor } from './DetalleMedidor'
 import { iconoConContador, iconoSeleccionado } from '../utils/iconosMapa'
