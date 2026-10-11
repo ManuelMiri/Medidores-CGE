@@ -7,5 +7,6 @@
   },
   "server": {
     "androidScheme": "https"
-  }
+  },
+  "loggingBehavior": "none"
 }

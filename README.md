@@ -190,13 +190,18 @@ se limpian los datos del WebView se pierde el URI guardado en IndexedDB pero el 
 sigue vivo, así que se le pregunta al plugin en vez de confiar en lo guardado.
 
 
-**Ojo con logcat en los builds de debug.** Capacitor registra en el log de Android el resultado de cada
-llamada a un plugin, y eso incluye el **texto completo del log de TOES** que devuelve `leerLog`: con
-direcciones, lecturas y coordenadas de clientes. No sale del teléfono, pero queda legible para cualquiera
-con `adb`. Solo pasa en builds de debug (el `loggingBehavior` por defecto de Capacitor solo registra si
-la app es depurable), así que **antes de firmar un APK de release conviene poner
-`"loggingBehavior": "none"` en `capacitor.config.json`** y verificarlo. Se deja en el default mientras
-se prueba, porque es justamente ese log el que permite diagnosticar errores de JS en el teléfono.
+**El log de TOES ya no sale por logcat, y eso fue a propósito.** Capacitor registra en el log de
+Android el resultado de cada llamada a un plugin, y eso incluía el **texto completo del log de TOES**
+que devuelve `leerLog`: direcciones, lecturas y coordenadas de clientes, legibles para cualquiera con
+un cable. Por eso `capacitor.config.json` lleva `"loggingBehavior": "none"`.
+
+Antes se dejaba prendido porque era la única forma de diagnosticar errores de JS en el teléfono. Ya no
+lo es: `scripts/webviewCdp.mjs` habla con el WebView por el protocolo de DevTools y da algo mejor —
+las excepciones de verdad, con su stack, y la posibilidad de evaluar JavaScript en la página. El bug
+que dejó la app en blanco por un `useState` sin importar **solo apareció por ahí**; en logcat no había
+ni una línea.
+
+Verificado: con la app leyendo `/TOES`, `adb logcat | grep Capacitor` devuelve cero líneas.
 
 
 ## Rendimiento del mapa
@@ -250,10 +255,9 @@ Tres cosas de ese script costaron y conviene no volver a pisarlas:
 `components/MapaGL.jsx`. **Es el motor de producción.** Leaflet sigue entero como red de seguridad,
 a un flag de distancia:
 
-```js
-localStorage.setItem('motorMapa', 'leaflet')   // volver a Leaflet, y recargar
-localStorage.removeItem('motorMapa')           // volver a MapLibre
-```
+Se cambia desde el **pie del panel lateral** ("usar el mapa clásico"), que recarga la app. Que esté
+en la interfaz y no solo en `localStorage` es justamente el punto: una salida de emergencia que
+necesita un PC con `adb` y DevTools no le sirve a un lector en terreno.
 
 Leaflet se queda por una razón concreta y no por indecisión: la distribución es por **sideload**, así
 que si algo aparece en terreno no hay forma de publicar un arreglo — habría que reinstalar en cada
@@ -590,6 +594,16 @@ npm run android:apk
 Scripts disponibles: `android:sync` (build nativo + `cap sync`), `android:apk` (lo anterior + `scripts/compilarApk.mjs`, que busca un JDK y corre `gradlew assembleDebug`), `android:open` (abrir en Android Studio).
 
 Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/`targetSdk 36`.
+
+**Antes de repartir un APK, subir la versión** en `android/app/build.gradle` (`versionCode` y
+`versionName`). No hay Play Store ni actualización automática, así que la única forma de saber qué
+build tiene un teléfono es preguntársela — y para eso tiene que cambiar. El `versionName` sale en el
+pie del panel lateral, así que se lee sin entrar a los ajustes de Android.
+
+**Si el teléfono ya tuvo un APK compilado en otra máquina**, la instalación falla con
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`: cada PC firma los builds de debug con su propia llave. Hay que
+desinstalar primero, y eso borra el estado local de TOES de ese teléfono (el permiso de la carpeta y
+el ciclo vigente); lo que está en el servidor no se toca.
 
 ### Requisitos y trampas conocidas
 

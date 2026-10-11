@@ -49,9 +49,12 @@ cd backend && npm test   # 62 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Para probar en el teléfono con `adb`: `adb install -r frontend/android/app/build/outputs/apk/debug/app-debug.apk`.
-El WebView es inspeccionable en builds de debug (`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`),
-y **`adb logcat | grep Capacitor/Console` es la única forma de ver errores de JS del APK** — más de un
-bug solo apareció ahí.
+
+**Para ver qué está pasando dentro del APK, `scripts/webviewCdp.mjs`.** Habla con el WebView por el
+protocolo de DevTools: da las excepciones con su stack y deja evaluar JavaScript en la página. Es la
+herramienta a la que hay que ir primero — el bug que dejó la app en blanco por un `useState` sin
+importar solo apareció ahí. `adb logcat` ya no sirve para esto: `loggingBehavior` está en `"none"`
+para que el log de TOES no quede legible con un cable.
 
 ## Dónde vive qué
 
@@ -103,9 +106,12 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 - **El repo trabaja en Windows con `core.autocrlf=true`.** El README es CRLF: al editarlo con scripts
   hay que normalizar y devolverlo a CRLF, o queda con finales mezclados. `gradlew` está fijado a LF en
   `.gitattributes` porque con CRLF no arranca en macOS ni Linux.
-- **En builds de debug, Capacitor escribe en logcat el texto completo del log de TOES**, con datos de
-  clientes. Antes de firmar un release hay que poner `"loggingBehavior": "none"` en
-  `capacitor.config.json`.
+- **Capacitor escribía en logcat el texto completo del log de TOES**, con datos de clientes, porque
+  registra el resultado de cada llamada a un plugin. Ya está cerrado con `"loggingBehavior": "none"`
+  en `capacitor.config.json`; si alguien lo vuelve a prender para depurar, que no quede así.
+- **La versión del APK se sube a mano** (`android/app/build.gradle`) en cada build que se reparta. No
+  hay Play Store ni actualización automática, así que es la única forma de saber qué tiene cada
+  teléfono. Sale en el pie del panel lateral para poder leerla sin entrar a los ajustes de Android.
 
 ## Estado y qué falta
 
@@ -116,9 +122,9 @@ por frame pasa de 57 ms a 16 ms y los marcadores dejan de costar (+19 ms por fra
 medible en GL). **MapLibre es el motor por defecto**; Leaflet sigue entero como red de seguridad,
 porque con sideload un problema en terreno no se arregla publicando:
 
-```js
-localStorage.setItem('motorMapa', 'leaflet')   // volver a Leaflet, y recargar
-```
+Se cambia desde el **pie del panel lateral**, que recarga la app. Que esté en la interfaz y no solo
+en `localStorage` es el punto: una salida de emergencia que necesita un PC con `adb` no le sirve a un
+lector en terreno.
 
 **Todo lo que toque el mapa hay que probarlo en los DOS motores.** Ya pasó que un cambio rompiera el
 de Leaflet —la app en blanco— sin que lo vieran el build, oxlint ni los 130 tests, porque el archivo

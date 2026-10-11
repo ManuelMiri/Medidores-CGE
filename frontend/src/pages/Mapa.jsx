@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import api from '../services/api'
+import { App } from '@capacitor/app'
 import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
 import CapturaFoto from '../components/CapturaFoto'
@@ -263,15 +264,72 @@ const puedePrecargar = hayPrecarga()
 // arreglo — hay que reinstalar en cada telefono. Teniendo el motor viejo a un
 // flag de distancia, el lector puede seguir trabajando el mismo dia.
 //
-// Para volver a Leaflet, desde la consola del WebView:
+// Se cambia desde el pie del panel lateral (ver PieDelPanel), que recarga la
+// app. Tambien se puede a mano desde la consola del WebView:
 //   localStorage.setItem('motorMapa', 'leaflet')
 //
 // Se lee UNA vez al cargar el modulo: cambiar de motor en caliente obligaria a
 // desmontar y volver a montar el mapa entero, y no vale la pena por algo que se
 // toca una vez cada varios meses.
+const CLAVE_MOTOR = 'motorMapa'
 const MOTOR_GL = (() => {
-  try { return localStorage.getItem('motorMapa') !== 'leaflet' } catch { return true }
+  try { return localStorage.getItem(CLAVE_MOTOR) !== 'leaflet' } catch { return true }
 })()
+
+/**
+ * El pie del panel: qué versión del APK es ésta y con qué motor está dibujando
+ * el mapa.
+ *
+ * La versión NO es un adorno. La app se reparte por sideload, sin Play Store y
+ * sin actualización automática, así que la única forma de saber qué build tiene
+ * un teléfono es preguntársela — y antes había que entrar a los ajustes de
+ * Android a buscarla.
+ *
+ * El cambio de motor tampoco. Leaflet se dejó entero justamente para que, si
+ * MapLibre falla en terreno, el lector siga trabajando el mismo día; pero hasta
+ * acá la única forma de cambiarlo era `localStorage` desde la consola del
+ * WebView, o sea con un cable, adb y DevTools. En el teléfono de un lector eso
+ * no existe, y una salida de emergencia que necesita un PC no es una salida.
+ */
+function PieDelPanel() {
+  const [version, setVersion] = useState(null)
+
+  useEffect(() => {
+    // Sale del APK, así que no hay una segunda copia del número que se pueda
+    // desincronizar con build.gradle. En el navegador no hay versión y el
+    // bloque simplemente no la muestra.
+    App.getInfo()
+      .then((i) => setVersion(`${i.version} (${i.build})`))
+      .catch(() => {})
+  }, [])
+
+  const cambiarMotor = () => {
+    const aClasico = MOTOR_GL
+    const aviso = aClasico
+      ? 'Volver al mapa clásico.\n\nEs más lento pero lleva años andando. Úsalo si el mapa nuevo se porta raro.'
+      : 'Volver al mapa nuevo (más rápido).'
+    if (!confirm(`${aviso}\n\nLa app se va a recargar.`)) return
+    try {
+      if (aClasico) localStorage.setItem(CLAVE_MOTOR, 'leaflet')
+      else localStorage.removeItem(CLAVE_MOTOR)
+    } catch { /* sin storage no se puede cambiar, y tampoco se pudo guardar */ }
+    window.location.reload()
+  }
+
+  return (
+    <div style={{
+      marginTop: 'auto', padding: '0.6rem 0.75rem',
+      borderTop: '1px solid #e2e8f0', fontSize: '0.72rem', color: '#718096',
+    }}>
+      <div>Mapa: <strong>{MOTOR_GL ? 'nuevo' : 'clásico'}</strong></div>
+      <button type="button" className="btn btn-link btn-sm p-0"
+        style={{ fontSize: '0.72rem' }} onClick={cambiarMotor}>
+        {MOTOR_GL ? 'usar el mapa clásico' : 'volver al mapa nuevo'}
+      </button>
+      {version && <div style={{ marginTop: '0.2rem' }}>Versión {version}</div>}
+    </div>
+  )
+}
 
 export default function Mapa() {
   const { usuario, logout } = useAuth()
@@ -892,6 +950,8 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                 </div>
               )}
             </div>
+
+            <PieDelPanel />
           </div>
         )}
 

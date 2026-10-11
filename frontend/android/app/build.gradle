@@ -7,8 +7,15 @@ android {
         applicationId "cl.mla.maule"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // La version se SUBE A MANO en cada APK que se reparta. No hay Play Store
+        // ni actualizacion automatica: la unica forma de saber que build tiene
+        // un telefono es preguntarsela, y para eso tiene que cambiar. El
+        // versionName sale en el panel lateral de la app, asi que se lee sin
+        // entrar a los ajustes de Android.
+        //
+        // 2.0 es el cambio de motor del mapa a MapLibre (sobre GPU).
+        versionCode 2
+        versionName "2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
