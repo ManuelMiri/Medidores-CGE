@@ -14,3 +14,7 @@ Log_TOES*.txt
 *.jks
 *.keystore
 keystore.properties
+
+# Los APK que se reparten a mano. Se compilan, no se versionan: son 5 MB de
+# binario que ademas quedarian desactualizados al dia siguiente.
+*.apk

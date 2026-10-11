@@ -588,7 +588,7 @@ El APK y la web salen del **mismo código**. Lo único que cambia es de dónde s
 ```bash
 cd frontend
 npm run android:apk
-# -> android/app/build/outputs/apk/debug/app-debug.apk  (~7,3 MB)
+# -> android/app/build/outputs/apk/debug/app-debug.apk  (~4,8 MB)
 ```
 
 Scripts disponibles: `android:sync` (build nativo + `cap sync`), `android:apk` (lo anterior + `scripts/compilarApk.mjs`, que busca un JDK y corre `gradlew assembleDebug`), `android:open` (abrir en Android Studio).
