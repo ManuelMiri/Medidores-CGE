@@ -21,7 +21,7 @@
 // además lo deja correcto a cualquier zoom sin tener que convertir metros a
 // píxeles a mano.
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { Marker } from 'maplibre-gl'
 
 const COLOR_PUNTO = '#1a73e8'
@@ -110,12 +110,23 @@ export function useMiUbicacionGL(mapa, activo, onError) {
   // function y no const: la llaman efectos declarados más abajo, y una function
   // sí se hoistea. Un const referenciado antes de su línea revienta el render
   // con "Cannot access before initialization" y deja la app en blanco.
-  function aplicarRumbo() {
+  // Al rumbo de la brújula hay que restarle el ángulo del mapa.
+  //
+  // El rumbo viene en grados desde el NORTE, pero el mapa se puede rotar, y la
+  // flecha está pegada a la pantalla (anclada al viewport, como todos los
+  // marcadores). Si se dibujara el rumbo crudo, con el mapa girado 90° la
+  // flecha apuntaría 90° equivocados — y lo peor es que seguiría pareciendo
+  // correcta, porque nada se ve roto.
+  // Va con useCallback y declarada ANTES de los efectos que la usan: es la
+  // trampa que ya dejó la app en blanco una vez. Los arrays de dependencias se
+  // evalúan durante el render, y un const referenciado antes de su línea tira
+  // "Cannot access before initialization" — que ni el build ni oxlint ven.
+  const aplicarRumbo = useCallback(() => {
     const flecha = flechaRef.current
-    if (flecha && rumboRef.current != null) {
-      flecha.style.transform = `rotate(${rumboRef.current}deg)`
-    }
-  }
+    if (!flecha || rumboRef.current == null) return
+    const giroDelMapa = mapa?.getBearing?.() ?? 0
+    flecha.style.transform = `rotate(${rumboRef.current - giroDelMapa}deg)`
+  }, [mapa])
 
   // GPS en vivo — solo mientras esté prendido, para no gastar batería de por
   // vida cuando el técnico no lo está usando.
@@ -198,7 +209,7 @@ export function useMiUbicacionGL(mapa, activo, onError) {
       if (mapa.getLayer?.(CAPA_PRECISION)) mapa.removeLayer(CAPA_PRECISION)
       if (mapa.getSource?.(FUENTE_PRECISION)) mapa.removeSource(FUENTE_PRECISION)
     }
-  }, [mapa, activo, onError])
+  }, [mapa, activo, onError, aplicarRumbo])
 
   // Brújula — solo para orientar la flecha, no el mapa. El mapa se queda al
   // norte: rotarlo rompería la referencia del lector y el clic para agregar.
@@ -233,9 +244,14 @@ export function useMiUbicacionGL(mapa, activo, onError) {
       window.addEventListener('deviceorientation', manejarOrientacion, true)
     }
 
+    // Girar el mapa también mueve la flecha: lo que cambia es la referencia,
+    // no el rumbo.
+    mapa.on('rotate', aplicarRumbo)
+
     return () => {
       window.removeEventListener('deviceorientation', manejarOrientacion)
       window.removeEventListener('deviceorientationabsolute', manejarOrientacion)
+      mapa.off('rotate', aplicarRumbo)
     }
-  }, [mapa, activo])
+  }, [mapa, activo, aplicarRumbo])
 }

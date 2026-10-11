@@ -224,16 +224,33 @@ export default function MapaGL({
       center: CENTRO_MAULE,
       zoom: 13,
       maxZoom: ZOOM_MAXIMO,
-      // El mapa se queda al norte, como el de Leaflet. Rotarlo rompería la
-      // referencia que el lector ya tiene y, sobre todo, el clic para colocar
-      // un punto, que es la función central de la app.
-      dragRotate: false,
+      // El mapa SÍ se puede rotar, con dos dedos.
+      //
+      // En Leaflet no se podía: rotar era un truco de CSS sobre el contenedor y
+      // ahí sí rompía el clic para colocar un punto, que es la función central
+      // de la app. Acá la rotación es una propiedad de la cámara, así que
+      // e.lngLat sale bien a cualquier ángulo y los pines, el contador y el
+      // punto azul se quedan derechos solos (van anclados al viewport).
+      //
+      // Sirve de verdad en terreno: poder girar el mapa para que apunte hacia
+      // donde uno camina es la diferencia entre leer el mapa y traducirlo
+      // mentalmente, sobre todo en una ruta rural donde no hay esquinas que
+      // sirvan de referencia.
+      dragRotate: true,
+      // La inclinación sí queda apagada. Sobre foto satelital una vista en
+      // perspectiva desubica más de lo que ayuda, y cambiaría la escala dentro
+      // de la misma pantalla: dos pines igual de separados se verían a
+      // distancias distintas según dónde caigan.
       pitchWithRotate: false,
+      touchPitch: false,
+      maxPitch: 0,
       attributionControl: { compact: true },
     })
     mapaRef.current = mapa
-    mapa.touchZoomRotate.disableRotation()
-    mapa.addControl(new NavigationControl({ showCompass: false }), 'top-left')
+    // La brújula NO es un adorno: es la única forma de volver al norte sin
+    // pelearse con los dedos. Sin ella, un mapa que quedó torcido por accidente
+    // se queda torcido.
+    mapa.addControl(new NavigationControl({ showCompass: true, visualizePitch: false }), 'top-left')
 
     // Solo mientras se compara contra Leaflet: deja el mapa a mano para poder
     // interrogarlo desde la consola del WebView sin recompilar.
@@ -361,10 +378,42 @@ export default function MapaGL({
       })
       popupRef.current.on('close', () => setAbierto(null))
     }
+    const lngLat = [g.position[1], g.position[0]]
     popupRef.current
-      .setLngLat([g.position[1], g.position[0]])
+      .setLngLat(lngLat)
       .setDOMContent(divPopup.current)
       .addTo(mapa)
+
+    // Correr el mapa lo justo para que el popup entre.
+    //
+    // Leaflet lo hacía solo (autoPanPadding); MapLibre no tiene equivalente, y
+    // sin esto la ficha de un pin que esté arriba en la pantalla queda cortada
+    // contra la barra azul y no se llega a los botones. Se mueve lo MÍNIMO y no
+    // se centra el punto, que es lo que hacía Leaflet: mover de más desubica al
+    // lector, que estaba mirando otra parte del mapa.
+    //
+    // En un frame siguiente porque recién ahí el popup tiene su alto real.
+    requestAnimationFrame(() => {
+      const el = popupRef.current?.getElement()
+      if (!el) return
+      const caja = el.getBoundingClientRect()
+      const mapaCaja = mapa.getCanvas().getBoundingClientRect()
+      const MARGEN = 10
+      // Arriba hay que dejar más: el buscador FLOTA sobre el mapa, así que el
+      // borde del canvas no es el borde libre. Sin esto el popup entra en
+      // pantalla pero con su título y su ✕ escondidos detrás del buscador.
+      const MARGEN_ARRIBA = 58
+
+      // panBy mueve la CÁMARA, así que para bajar el popup en pantalla hay que
+      // pasarle el corrimiento en negativo.
+      let dx = 0
+      let dy = 0
+      if (caja.top < mapaCaja.top + MARGEN_ARRIBA) dy = -(mapaCaja.top + MARGEN_ARRIBA - caja.top)
+      if (caja.left < mapaCaja.left + MARGEN) dx = -(mapaCaja.left + MARGEN - caja.left)
+      else if (caja.right > mapaCaja.right - MARGEN) dx = caja.right - (mapaCaja.right - MARGEN)
+
+      if (dx || dy) mapa.panBy([dx, dy], { duration: 200 })
+    })
   }, [abierto, grupos, esMobil, listo])
 
   // ------------------------------------------------- el punto nuevo a colocar
@@ -496,7 +545,9 @@ export default function MapaGL({
         title={capa === 'satelite' ? 'Ver calles' : 'Ver satélite'}
         onClick={() => onCambioCapa?.(capa === 'satelite' ? 'calles' : 'satelite')}
         style={{
-          position: 'absolute', top: '0.6rem', right: '0.6rem', zIndex: 2,
+          // Debajo del buscador, que en un teléfono angosto ocupa todo el
+          // ancho de arriba y lo taparía.
+          position: 'absolute', top: '3.2rem', right: '0.6rem', zIndex: 1001,
           background: '#fff', border: '2px solid rgba(0,0,0,0.2)', borderRadius: '4px',
           width: '36px', height: '36px', fontSize: '1.1rem', lineHeight: 1,
           cursor: 'pointer', padding: 0,
