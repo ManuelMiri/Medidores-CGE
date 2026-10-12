@@ -16,7 +16,7 @@ import { useMarcasToes } from '../hooks/useMarcasToes'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
-import { ulsARestaurar } from '../utils/ulsActivas'
+import { ulsARestaurar, ulsTrasRecargar } from '../utils/ulsActivas'
 import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
 import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
 import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
@@ -505,15 +505,22 @@ export default function Mapa() {
   // durante el render — lo lee antes de que exista y tira
   // "Cannot access 'cargarMedidores' before initialization". Eso revienta el
   // render de Mapa, React desmonta el árbol y la app queda en blanco.
-  async function cargarUls() {
+  // `alAbrir` separa el arranque de una recarga con la app abierta (importar
+  // un KML, eliminar una ruta): solo al arrancar se restaura lo guardado; si
+  // no, se pisaba lo que el lector marcó durante la sesión.
+  async function cargarUls({ alAbrir = false } = {}) {
     try {
       const { data } = await api.get('/medidores/uls')
       setUls(data.uls)
       // La regla de qué se restaura vive en utils/ulsActivas.js, con tests:
       // descartar una UL que ya no existe falla en silencio (el mapa queda
       // vacío sin decir por qué).
-      const restauradas = ulsARestaurar(ulsIniciales, data.uls)
-      if (restauradas.length > 0) setUlsActivas(restauradas)
+      if (alAbrir) {
+        const restauradas = ulsARestaurar(ulsIniciales, data.uls)
+        if (restauradas.length > 0) setUlsActivas(restauradas)
+      } else {
+        setUlsActivas((prev) => ulsTrasRecargar(prev, data.uls))
+      }
     } catch { setError('Error al cargar las unidades de lectura') }
     finally { setCargando(false) }
   }
@@ -530,7 +537,7 @@ export default function Mapa() {
     finally { setCargando(false) }
   }, [ulsActivas])
 
-  useEffect(() => { cargarUls() }, [])
+  useEffect(() => { cargarUls({ alAbrir: true }) }, [])
   useEffect(() => {
     if (ulsActivas.length > 0) cargarMedidores()
     else setMedidores([])

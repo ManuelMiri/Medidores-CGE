@@ -24,3 +24,25 @@ export function ulsARestaurar(guardadas, disponibles) {
   // mapa vacío se vería como que la app no cargó.
   return validas.length > 0 ? validas : [disponibles[0]]
 }
+
+/**
+ * Qué queda marcado cuando la lista de ULs se recarga con la app ya abierta
+ * (después de importar un KML o de eliminar una ruta).
+ *
+ * Antes se volvía a aplicar ulsARestaurar sobre lo guardado AL ABRIR la app,
+ * así que importar un KML a media sesión te devolvía las ULs de la mañana y
+ * perdías las que habías marcado después.
+ *
+ * Devuelve el MISMO array si no cambió nada: una identidad nueva recargaría
+ * todos los medidores de nuevo sin motivo.
+ *
+ * @param actuales     lo marcado ahora mismo
+ * @param disponibles  la lista recién llegada del backend
+ */
+export function ulsTrasRecargar(actuales, disponibles) {
+  // Sin nada marcado es una elección del lector: no se le marca nada.
+  if (!Array.isArray(actuales) || actuales.length === 0) return actuales
+  const r = ulsARestaurar(actuales, disponibles)
+  const iguales = r.length === actuales.length && r.every((ul, i) => ul === actuales[i])
+  return iguales ? actuales : r
+}
