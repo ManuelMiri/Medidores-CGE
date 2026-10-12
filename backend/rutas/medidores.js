@@ -46,27 +46,36 @@ router.get('/', proteger, async (req, res) => {
   }
 })
 
-// GET /api/medidores/buscar?q=102243462
+// GET /api/medidores/buscar?q=102243462&ul=E3542002,E3542003
+// `ul` acepta varias separadas por coma: el mapa busca solo en las ULs que el
+// lector tiene marcadas. Sin eso, "Los Aromos 12" saltaba a otra ruta y la
+// marcaba sola, y el lector terminaba con el mapa lleno de pines ajenos.
 router.get('/buscar', proteger, async (req, res) => {
   try {
-    const { q, ul } = req.query
+    const { q } = req.query
     if (!q) return res.status(400).json({ error: 'Parámetro q requerido' })
 
+    // Lo que escribe el lector es texto, no una expresión: un "12 (casa)" o un
+    // "s/n" no tienen que cambiar qué se busca ni tirar un 500.
+    const texto = String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const filtro = {
       $or: [
-        { instalacion:   { $regex: q, $options: 'i' } },
-        { direccion:     { $regex: q, $options: 'i' } },
-        { numeroDePoste: { $regex: q, $options: 'i' } },
-        { numeroDeSerie: { $regex: q, $options: 'i' } },
+        { instalacion:   { $regex: texto, $options: 'i' } },
+        { direccion:     { $regex: texto, $options: 'i' } },
+        { numeroDePoste: { $regex: texto, $options: 'i' } },
+        { numeroDeSerie: { $regex: texto, $options: 'i' } },
       ],
     }
 
-    // Restringir por UL si es lector
-    if (ul) {
-      filtro.unidadDeLectura = ul
-    } else if (req.usuario.rol === 'lector') {
-      filtro.unidadDeLectura = { $in: req.usuario.unidadesLectura }
+    let uls = req.query.ul
+      ? String(req.query.ul).split(',').map((u) => u.trim()).filter(Boolean)
+      : null
+    // Un lector no puede salir de sus ULs pasándolas en la URL.
+    if (req.usuario.rol === 'lector') {
+      const propias = req.usuario.unidadesLectura || []
+      uls = uls ? uls.filter((u) => propias.includes(u)) : propias
     }
+    if (uls) filtro.unidadDeLectura = { $in: uls }
 
     const medidores = await Medidor.find(filtro).limit(20).select('-__v')
     res.json({ total: medidores.length, medidores })

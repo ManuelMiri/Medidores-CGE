@@ -340,6 +340,9 @@ export default function Mapa() {
   const [error, setError]               = useState(null)
   const [busqueda, setBusqueda]         = useState('')
   const [filtroUl, setFiltroUl]         = useState('')
+  // Arranca cerrada si había ULs guardadas (se vuelve a la ruta del día sin
+  // tocar nada) y abierta la primera vez, que es cuando hay que elegir.
+  const [listaUlsAbierta, setListaUlsAbierta] = useState(ulsIniciales.length === 0)
   const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
   const [centroMapa, setCentroMapa]     = useState(null)
   // _id del medidor seleccionado (tocado o encontrado con el buscador),
@@ -558,12 +561,20 @@ export default function Mapa() {
     const texto = busqueda.trim()
     if (!texto) return
 
+    // Se busca SOLO en las ULs marcadas. Antes, si no aparecía ahí, caía a una
+    // búsqueda en todas las rutas y marcaba sola la UL del primer resultado:
+    // los "últimos dígitos" casi siempre se repiten en alguna otra ruta, así
+    // que el lector terminaba en un medidor ajeno y con otra UL cargada.
+    if (ulsActivas.length === 0) {
+      alert('Marca primero la UL en la que quieres buscar.')
+      return
+    }
+
     // Si es puro número (los últimos 4-5 dígitos del medidor), busco
-    // primero dentro de lo que ya está cargado (o sea, dentro de las ULs
-    // que tienes marcadas) comparando el FINAL del número de instalación
-    // — así "1234" encuentra el medidor 103382314 sin ambigüedad con
-    // otros números que solo lo contengan en el medio.
-    if (/^\d+$/.test(texto) && ulsActivas.length > 0) {
+    // primero dentro de lo que ya está cargado comparando el FINAL del
+    // número de instalación — así "1234" encuentra el medidor 103381234 sin
+    // ambigüedad con otros números que solo lo contengan en el medio.
+    if (/^\d+$/.test(texto)) {
       const candidatos = medidores.filter((m) => m.instalacion?.endsWith(texto))
 
       if (candidatos.length === 1) {
@@ -576,12 +587,13 @@ export default function Mapa() {
         alert(`Hay ${candidatos.length} medidores que terminan en "${texto}" en las ULs marcadas. Escribe más dígitos para precisar.`)
         return
       }
-      // Si no hay ninguno en las ULs activas, sigo abajo con la búsqueda
-      // general por si el medidor está en otra UL que no tienes marcada.
+      // Si no está en lo cargado igual se pregunta al servidor, restringido a
+      // las mismas ULs: la carga trae hasta 500 por UL y puede quedar corta.
     }
 
     try {
-      const { data } = await api.get(`/medidores/buscar?q=${texto}`)
+      const params = new URLSearchParams({ q: texto, ul: ulsActivas.join(',') })
+      const { data } = await api.get(`/medidores/buscar?${params}`)
       if (data.medidores.length > 0) {
         const m = data.medidores[0]
         if (m.ubicacion?.coordinates) {
@@ -589,12 +601,9 @@ export default function Mapa() {
           setCentroMapa([lat, lng])
         }
         seleccionarMedidor(m._id)
-        // Si el medidor es de una UL que no tienes marcada, la marco yo,
-        // porque si no su pin no está cargado y no hay nada que resaltar
-        if (m.unidadDeLectura && !ulsActivas.includes(m.unidadDeLectura)) {
-          setUlsActivas((prev) => [...prev, m.unidadDeLectura])
-        }
-      } else { alert('No se encontró ningún medidor') }
+      } else {
+        alert(`No se encontró "${texto}" en ${ulsActivas.length === 1 ? 'la UL ' + ulsActivas[0] : 'las ULs marcadas'}.`)
+      }
     } catch { setError('Error al buscar') }
   }
 
@@ -782,6 +791,66 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
     }
   }
 
+  const ulsFiltradas = uls.filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
+
+  // Una fila del panel de ULs. Es función y no componente porque se usa en
+  // las dos vistas del desplegable (cerrado: solo las marcadas; abierto: todas).
+  function filaUl(ul) {
+    return (
+      <div key={ul}>
+        <div className="d-flex align-items-center justify-content-between mb-1">
+          <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
+            <input className="form-check-input" type="checkbox"
+              id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
+              onChange={() => toggleUl(ul)} />
+            <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
+              style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+          </div>
+          {/* Solo para las rutas marcadas: los medidores de una
+              UL sin marcar no están cargados, así que no se sabe
+              qué cuadros bajar. Y solo en el APK, que es donde
+              tiene sentido salir a terreno sin señal. */}
+          {puedePrecargar && ulsActivas.includes(ul) && (
+            <button className="btn btn-sm p-0 px-1" title="Descargar el mapa de esta ruta (usar con wifi)"
+              onClick={() => descargarMapaDeRuta(ul)}
+              disabled={Boolean(precarga) && !precarga.mensaje}
+              style={{ fontSize: '0.85rem' }}>
+              🗺️
+            </button>
+          )}
+          {/* Exportar la deja ver admin y supervisor; eliminar
+              la ruta completa es una acción destructiva, solo
+              para admin. */}
+          {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
+            <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
+              onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+              📥
+            </button>
+          )}
+          {usuario.rol === 'admin' && (
+            <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
+              onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+              🗑️
+            </button>
+          )}
+        </div>
+
+        {precarga?.ul === ul && (
+          <div
+            onClick={() => precarga.mensaje && setPrecarga(null)}
+            title={precarga.mensaje ? 'Tocar para ocultar' : undefined}
+            style={{
+              fontSize: '0.72rem', color: '#4a5568',
+              margin: '-0.2rem 0 0.4rem 1.5rem',
+              cursor: precarga.mensaje ? 'pointer' : 'default',
+            }}>
+            {precarga.mensaje ?? `Bajando el mapa… ${precarga.hechas} / ${precarga.total}`}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (cargando && uls.length === 0) return (
     <div className="d-flex justify-content-center align-items-center" style={{ height: '100vh' }}>
       <Spinner animation="border" variant="primary" />
@@ -824,83 +893,60 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             overflowY: 'auto', zIndex: 100,
           }}>
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
-              <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
-                📋 Unidades de Lectura
-              </p>
+              {/* Desplegable: con 200+ rutas la lista abierta ocupaba todo el
+                  panel y empujaba TOES y el Resumen fuera de la pantalla. Cerrado
+                  muestra solo las ULs marcadas, que son con las que se trabaja
+                  en el día y las que tienen los botones de mapa y exportar. */}
+              <button type="button" onClick={() => setListaUlsAbierta((a) => !a)}
+                aria-expanded={listaUlsAbierta}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  background: 'none', border: 'none', padding: 0, textAlign: 'left',
+                  fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0',
+                }}>
+                <span style={{ flex: 1 }}>📋 Unidades de Lectura</span>
+                <span style={{ fontWeight: 'normal', fontSize: '0.75rem', color: '#718096' }}>
+                  {ulsActivas.length === 0 ? 'ninguna' : `${ulsActivas.length} marcada${ulsActivas.length > 1 ? 's' : ''}`}
+                </span>
+                <span>{listaUlsAbierta ? '▴' : '▾'}</span>
+              </button>
 
-              {/* Con 200+ rutas, la lista completa de checkboxes se hace
-                  eterna. Este filtro corta la lista visible al toque, y el
-                  contenedor de abajo tiene una altura tope con scroll para
-                  que nunca vuelva a crecer indefinidamente. */}
-              <input
-                type="text"
-                className="form-control form-control-sm mb-2"
-                placeholder="Filtrar UL..."
-                value={filtroUl}
-                onChange={(e) => setFiltroUl(e.target.value)}
-              />
+              {!listaUlsAbierta && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  {ulsActivas.length === 0
+                    ? (
+                      <button type="button" className="btn btn-outline-primary btn-sm w-100"
+                        onClick={() => setListaUlsAbierta(true)}>
+                        Elegir UL
+                      </button>
+                    )
+                    : ulsActivas.map(filaUl)}
+                </div>
+              )}
 
-              <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
-                {uls
-                  .filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
-                  .map(ul => (
-                    <div key={ul}>
-                      <div className="d-flex align-items-center justify-content-between mb-1">
-                        <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
-                          <input className="form-check-input" type="checkbox"
-                            id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
-                            onChange={() => toggleUl(ul)} />
-                          <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
-                            style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
-                        </div>
-                        {/* Solo para las rutas marcadas: los medidores de una
-                            UL sin marcar no están cargados, así que no se sabe
-                            qué cuadros bajar. Y solo en el APK, que es donde
-                            tiene sentido salir a terreno sin señal. */}
-                        {puedePrecargar && ulsActivas.includes(ul) && (
-                          <button className="btn btn-sm p-0 px-1" title="Descargar el mapa de esta ruta (usar con wifi)"
-                            onClick={() => descargarMapaDeRuta(ul)}
-                            disabled={Boolean(precarga) && !precarga.mensaje}
-                            style={{ fontSize: '0.85rem' }}>
-                            🗺️
-                          </button>
-                        )}
-                        {/* Exportar la deja ver admin y supervisor; eliminar
-                            la ruta completa es una acción destructiva, solo
-                            para admin. */}
-                        {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                          <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
-                            onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
-                            📥
-                          </button>
-                        )}
-                        {usuario.rol === 'admin' && (
-                          <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
-                            onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
-                            🗑️
-                          </button>
-                        )}
-                      </div>
+              {listaUlsAbierta && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <input
+                    type="text"
+                    className="form-control form-control-sm mb-2"
+                    placeholder="Filtrar UL..."
+                    value={filtroUl}
+                    onChange={(e) => setFiltroUl(e.target.value)}
+                  />
 
-                      {precarga?.ul === ul && (
-                        <div
-                          onClick={() => precarga.mensaje && setPrecarga(null)}
-                          title={precarga.mensaje ? 'Tocar para ocultar' : undefined}
-                          style={{
-                            fontSize: '0.72rem', color: '#4a5568',
-                            margin: '-0.2rem 0 0.4rem 1.5rem',
-                            cursor: precarga.mensaje ? 'pointer' : 'default',
-                          }}>
-                          {precarga.mensaje ?? `Bajando el mapa… ${precarga.hechas} / ${precarga.total}`}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                }
-                {filtroUl && uls.filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase())).length === 0 && (
-                  <p className="text-muted" style={{ fontSize: '0.78rem' }}>Sin resultados</p>
-                )}
-              </div>
+                  <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                    {ulsFiltradas.map(filaUl)}
+                    {ulsFiltradas.length === 0 && (
+                      <p className="text-muted" style={{ fontSize: '0.78rem' }}>Sin resultados</p>
+                    )}
+                  </div>
+
+                  <button type="button" className="btn btn-primary btn-sm w-100 mt-2"
+                    onClick={() => { setListaUlsAbierta(false); setFiltroUl('') }}>
+                    Listo
+                  </button>
+                </div>
+              )}
             </div>
 
             <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
