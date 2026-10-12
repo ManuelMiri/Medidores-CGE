@@ -9,7 +9,8 @@ interno que además lee los logs de TOES del teléfono.
 
 ## Reglas que no se negocian
 
-- **No fusionar `Develop` → `main` sin preguntar.** Instrucción explícita del usuario. `main` es
+- **No fusionar nada a `main` sin preguntar** (ni `Develop` ni `map` ni ninguna otra rama).
+  Instrucción explícita del usuario; que haya aprobado un merge no aprueba el siguiente. `main` es
   producción (Vercel y Railway despliegan de ahí) y la comparte con un colega que también empuja.
 - **TOES es la app oficial de CGE. No se modifica ni se descompila.** La carpeta `/TOES` del teléfono
   es **solo lectura**: nunca escribir, mover ni borrar nada ahí. `ToesPlugin.java` abre en modo `"r"` y
@@ -36,7 +37,7 @@ interno que además lee los logs de TOES del teléfono.
 
 ```bash
 cd frontend
-npm test              # 130 tests con node --test (sin dependencias extra)
+npm test              # 134 tests con node --test (sin dependencias extra)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -45,7 +46,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 62 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 71 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Para probar en el teléfono con `adb`: `adb install -r frontend/android/app/build/outputs/apk/debug/app-debug.apk`.
@@ -75,7 +76,7 @@ para que el log de TOES no quede legible con un cable.
 | `frontend/src/utils/cursorToes.js` | cursor de lectura incremental, **en bytes** |
 | `frontend/src/utils/toesNativo.js` | puente con el plugin nativo y bucle de lectura |
 | `frontend/src/utils/marcasToes.js` | qué claves proponen marca permanente y cuál la quita |
-| `frontend/src/utils/ulsActivas.js` | qué ULs quedan marcadas al abrir la app |
+| `frontend/src/utils/ulsActivas.js` | qué ULs quedan marcadas al abrir la app y al recargar la lista |
 | `frontend/src/hooks/useMarcasToes.js` | lo único de TOES que escribe en el backend |
 | `frontend/src/hooks/useToes.js` | une parser + almacén + mapa |
 | `frontend/public/sw-tiles.js` | service worker del APK: cachea tiles, no precachea |
@@ -112,15 +113,21 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 - **La versión del APK se sube a mano** (`android/app/build.gradle`) en cada build que se reparta. No
   hay Play Store ni actualización automática, así que es la única forma de saber qué tiene cada
   teléfono. Sale en el pie del panel lateral para poder leerla sin entrar a los ajustes de Android.
+- **Un `confirm()` o `alert()` abierto cuelga `webviewCdp.mjs`.** El diálogo bloquea el hilo de la
+  página y `Runtime.evaluate` no contesta hasta que alguien lo cierra en el teléfono. Para probar algo
+  que pregunta (cambiar de motor, eliminar), reemplazar `window.confirm`/`window.alert` antes, o hacer
+  directo lo que haría el botón (el motor es `localStorage.motorMapa`).
 
 ## Estado y qué falta
 
-`Develop` está adelante de `main` y **ya está respaldada en el remoto** (`origin/Develop`).
+El 2026-10-12 se fusionaron `Develop` y `map` a `main`: TOES, la marca permanente y el motor
+MapLibre están en producción. Las tres ramas quedaron en el mismo commit y en el remoto. Lo nuevo va
+en una rama y se fusiona a `main` solo con permiso (ver las reglas de arriba).
 
-La rama **`map`** tiene la migración del motor del mapa a MapLibre GL, medida en el teléfono: el p95
-por frame pasa de 57 ms a 16 ms y los marcadores dejan de costar (+19 ms por frame en Leaflet, 0
-medible en GL). **MapLibre es el motor por defecto**; Leaflet sigue entero como red de seguridad,
-porque con sideload un problema en terreno no se arregla publicando:
+La migración del motor del mapa a MapLibre GL está medida en el teléfono: el p95 por frame pasa de
+57 ms a 16 ms y los marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
+**MapLibre es el motor por defecto**; Leaflet sigue entero como red de seguridad, porque con
+sideload un problema en terreno no se arregla publicando.
 
 Se cambia desde el **pie del panel lateral**, que recarga la app. Que esté en la interfaz y no solo
 en `localStorage` es el punto: una salida de emergencia que necesita un PC con `adb` no le sirve a un
@@ -129,6 +136,10 @@ lector en terreno.
 **Todo lo que toque el mapa hay que probarlo en los DOS motores.** Ya pasó que un cambio rompiera el
 de Leaflet —la app en blanco— sin que lo vieran el build, oxlint ni los 130 tests, porque el archivo
 que se rompió solo se monta en esa rama.
+
+**El buscador busca solo en las ULs marcadas**, a propósito. Antes caía a una búsqueda en todas las
+rutas y marcaba sola la UL del resultado: los últimos dígitos se repiten entre rutas y el lector
+terminaba en un medidor ajeno. Si no está en lo marcado, avisa; no salir a buscarlo a otra UL.
 
 Pendiente:
 
