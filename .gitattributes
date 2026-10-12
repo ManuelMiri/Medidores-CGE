@@ -1,0 +1,8 @@
+# gradlew es un script de shell: si git lo convierte a CRLF no arranca en
+# macOS ni Linux ("bad interpreter: /bin/sh^M"). El repo se trabaja en
+# Windows con core.autocrlf=true, asi que hay que fijarlo a mano.
+frontend/android/gradlew text eol=lf
+
+# El wrapper de Gradle y los iconos no son texto: que git no los normalice.
+*.jar binary
+*.png binary

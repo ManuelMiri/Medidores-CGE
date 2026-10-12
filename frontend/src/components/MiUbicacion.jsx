@@ -34,10 +34,27 @@ function inyectarEstilosUnaVez() {
 // importar cuánto zoom tenga el mapa — los marcadores en Leaflet nunca
 // escalan con el zoom, a diferencia de un círculo geográfico (que sí
 // crece/achica porque representa metros reales, no píxeles).
-function crearIconoDireccion(rumbo) {
+//
+// Se crea UNA sola vez y NO lleva el rumbo adentro. Antes se rehacía en cada
+// evento de la brújula y se pasaba por marker.setIcon(), y eso era un problema
+// por partida doble:
+//
+//   - deviceorientation dispara a ~60 Hz, y L.DivIcon.createIcon reescribe el
+//     innerHTML del marcador. O sea que el subárbol entero, con su SVG, se
+//     rehacía 60 veces por segundo — con su recálculo de estilo y su pintado —
+//     justo mientras el lector arrastra el mapa. Y "mi ubicación" prendido es
+//     el estado normal en terreno.
+//   - como el nodo se rehacía antes de que la animación avanzara, el halo
+//     pulsante y la transición de 0,15 s NUNCA llegaban a verse. Se estaba
+//     pagando el costo de una animación que no ocurría.
+//
+// Ahora el rumbo se aplica como un style.transform sobre el div de la flecha,
+// que es una propiedad que compone la GPU sin rehacer nada.
+let iconoCache = null
+function iconoDireccion() {
+  if (iconoCache) return iconoCache
   inyectarEstilosUnaVez()
-  const rotacion = rumbo ?? 0
-  return L.divIcon({
+  iconoCache = L.divIcon({
     className: 'icono-mi-ubicacion',
     html: `
       <div style="position: relative; width: 28px; height: 28px;">
@@ -47,9 +64,8 @@ function crearIconoDireccion(rumbo) {
           background: ${COLOR_PUNTO};
           animation: pulso-mi-ubicacion 1.8s ease-out infinite;
         "></div>
-        <div style="
+        <div class="flecha-mi-ubicacion" style="
           position: absolute; inset: 0;
-          transform: rotate(${rotacion}deg);
           transition: transform 0.15s linear;
           display: flex; align-items: center; justify-content: center;
         ">
@@ -63,29 +79,88 @@ function crearIconoDireccion(rumbo) {
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   })
+  return iconoCache
+}
+
+/** Cada cuánto se le hace caso a la brújula, como mucho. */
+const CADA_MS_RUMBO = 100
+/** Giro mínimo que vale la pena dibujar, en grados. */
+const GRADOS_MINIMOS = 2
+
+/** Diferencia angular con signo, en [-180, 180]. Sin esto, pasar de 359° a 1°
+ *  parecería un giro de 358 grados y no de 2. */
+function diferenciaAngular(a, b) {
+  return ((a - b + 540) % 360) - 180
 }
 
 export default function MiUbicacion({ activo, onError }) {
   const map = useMap()
   const [posicion, setPosicion] = useState(null) // [lat, lng]
   const [precision, setPrecision] = useState(null) // metros
-  const [rumbo, setRumbo] = useState(null) // grados, 0 = norte
   const marcadorRef = useRef(null)
   const circuloRef = useRef(null)
   const yaCentroRef = useRef(false)
 
+  // El rumbo NO es estado de React a propósito: nada del render depende de él,
+  // así que cada lectura de la brújula costaría un render del componente para
+  // terminar escribiendo un style. Vive en un ref y se aplica directo al DOM.
+  const flechaRef = useRef(null) // el div que gira, dentro del icono
+  const rumboRef = useRef(null) // último rumbo visto
+  const rumboEnRef = useRef(0) // cuándo se aplicó, para no pasarse de 10 Hz
+
+  // function y no const: la llaman efectos declarados más abajo, y una function
+  // sí se hoistea. Un const referenciado antes de su línea revienta el render
+  // con "Cannot access before initialization" y deja la app en blanco.
+  function aplicarRumbo() {
+    const flecha = flechaRef.current
+    if (flecha && rumboRef.current != null) {
+      flecha.style.transform = `rotate(${rumboRef.current}deg)`
+    }
+  }
+
   // GPS en vivo — se actualiza solo mientras 'activo' esté prendido, para
   // no gastar batería de por vida cuando el técnico no lo está usando.
+  const yaAvisoRef = useRef(false)
   useEffect(() => {
-    if (!activo || !navigator.geolocation) return
+    if (!activo) return
+    if (!navigator.geolocation) {
+      onError?.('Este dispositivo no permite obtener la ubicación', true)
+      return
+    }
+    yaAvisoRef.current = false
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        yaAvisoRef.current = false // volvió a haber señal
         setPosicion([pos.coords.latitude, pos.coords.longitude])
         setPrecision(pos.coords.accuracy)
       },
-      () => onError?.('No se pudo obtener tu ubicación'),
-      { enableHighAccuracy: true, maximumAge: 5000 }
+      (err) => {
+        // Decirle al lector QUÉ pasó. "No se pudo obtener tu ubicación" no
+        // distingue entre un permiso denegado (que se arregla en ajustes) y
+        // el GPS apagado o sin fijar posición (que se arregla en terreno), y
+        // son acciones distintas.
+        const falloPermiso = err?.code === 1 // PERMISSION_DENIED
+        const mensaje = falloPermiso
+          ? 'Falta el permiso de ubicación. Dáselo a la app en Ajustes → Aplicaciones → MLA Maule → Permisos.'
+          : err?.code === 3 // TIMEOUT
+            ? 'El GPS está tardando en fijar posición. Si estás bajo techo, sal a cielo abierto.'
+            : 'No hay señal de GPS. Revisa que la ubicación del teléfono esté encendida.'
+
+        // Solo el permiso denegado apaga el seguimiento: no se arregla solo.
+        // Perder señal un rato es normal en terreno, así que ahí se avisa una
+        // vez y se sigue intentando en vez de obligar a volver a tocar el botón.
+        if (falloPermiso) {
+          onError?.(mensaje, true)
+          return
+        }
+        if (yaAvisoRef.current) return
+        yaAvisoRef.current = true
+        onError?.(mensaje, false)
+      },
+      // Sin timeout, watchPosition puede quedarse callado para siempre si el
+      // GPS no fija: ni posición ni error, y el lector no sabe si está roto.
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
     )
 
     return () => navigator.geolocation.clearWatch(watchId)
@@ -102,7 +177,19 @@ export default function MiUbicacion({ activo, onError }) {
       // El evento estándar 'alpha' viene al revés (antihorario), hay que
       // invertirlo para que la flecha apunte al lado correcto.
       const heading = e.webkitCompassHeading ?? (e.alpha != null ? 360 - e.alpha : null)
-      if (heading != null) setRumbo(heading)
+      if (heading == null) return
+
+      // El sensor dispara a ~60 Hz. Más de 10 veces por segundo no se percibe,
+      // y un giro de menos de 2° es el ruido del magnetómetro con el teléfono
+      // quieto sobre la mesa, no un movimiento de la mano.
+      const ahora = performance.now()
+      if (ahora - rumboEnRef.current < CADA_MS_RUMBO) return
+      const previo = rumboRef.current
+      if (previo != null && Math.abs(diferenciaAngular(heading, previo)) < GRADOS_MINIMOS) return
+
+      rumboEnRef.current = ahora
+      rumboRef.current = heading
+      aplicarRumbo()
     }
 
     if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
@@ -128,22 +215,30 @@ export default function MiUbicacion({ activo, onError }) {
   // API de Leaflet (más liviano que re-renderizar componentes de
   // react-leaflet en cada actualización de GPS, que puede llegar varias
   // veces por segundo).
+  //
+  // El rumbo NO está en las dependencias: el icono ya no depende de él, así que
+  // este efecto corre al ritmo del GPS (~1 Hz) y no al de la brújula (~60 Hz).
   useEffect(() => {
     if (!activo || !posicion) {
       marcadorRef.current?.remove()
       circuloRef.current?.remove()
       marcadorRef.current = null
       circuloRef.current = null
+      flechaRef.current = null
       yaCentroRef.current = false
       return
     }
 
     if (!marcadorRef.current) {
-      marcadorRef.current = L.marker(posicion, { icon: crearIconoDireccion(rumbo), zIndexOffset: 1000 }).addTo(map)
+      marcadorRef.current = L.marker(posicion, { icon: iconoDireccion(), zIndexOffset: 1000 }).addTo(map)
       circuloRef.current = L.circle(posicion, { radius: precision || 0, color: COLOR_PUNTO, weight: 1, opacity: 0.3, fillOpacity: 0.06 }).addTo(map)
+      // El div de la flecha solo existe una vez que Leaflet dibujó el icono, así
+      // que se busca acá y se le aplica el rumbo que hubiera llegado antes de
+      // que el marcador existiera.
+      flechaRef.current = marcadorRef.current.getElement()?.querySelector('.flecha-mi-ubicacion') ?? null
+      aplicarRumbo()
     } else {
       marcadorRef.current.setLatLng(posicion)
-      marcadorRef.current.setIcon(crearIconoDireccion(rumbo))
       circuloRef.current.setLatLng(posicion)
       circuloRef.current.setRadius(precision || 0)
     }
@@ -155,7 +250,7 @@ export default function MiUbicacion({ activo, onError }) {
       map.setView(posicion, 17)
       yaCentroRef.current = true
     }
-  }, [activo, posicion, rumbo, precision, map])
+  }, [activo, posicion, precision, map])
 
   return null
 }

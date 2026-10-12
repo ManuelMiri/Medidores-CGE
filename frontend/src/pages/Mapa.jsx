@@ -1,169 +1,27 @@
 // src/pages/Mapa.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
-import L from 'leaflet'
 import api from '../services/api'
+import { App } from '@capacitor/app'
 import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
 import CapturaFoto from '../components/CapturaFoto'
 import GestionUsuarios from '../components/GestionUsuarios'
 import MiUbicacion from '../components/MiUbicacion'
+import PanelToes from '../components/PanelToes'
+import CapaMedidores from '../components/CapaMedidores'
+import { useToes } from '../hooks/useToes'
+import { useMarcasToes } from '../hooks/useMarcasToes'
+import { vistaDeGrupo } from '../utils/vistaMarcador'
+import { iconos } from '../utils/iconosMapa'
+import { agruparCercanos } from '../utils/agrupar'
+import { ulsARestaurar, ulsTrasRecargar } from '../utils/ulsActivas'
+import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
+import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
+import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
+import MapaGL from '../components/MapaGL'
 import 'leaflet/dist/leaflet.css'
-
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
-
-const iconos = {
-  localizado: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  perdido: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  pendiente: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  revision: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-  nuevo: new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-  }),
-}
-
-// Icono del medidor seleccionado (el que tocaste o encontraste con el
-// buscador): mismo tamaño que los demás, solo cambia a dorado para que se
-// note cuál es sin tapar los pines de al lado
-const iconoSeleccionado = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-gold.png',
-  iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-})
-
-// Botón ✕ propio para el popup (el de Leaflet lo escondo en escritorio
-// porque ahí corro el popup a la derecha del pin y el ✕ original quedaba
-// flotando en otro lado)
-function CerrarPopup() {
-  const map = useMap()
-  return (
-    <button type="button" className="btn-close btn-sm" aria-label="Cerrar"
-      style={{ fontSize: '0.6rem' }}
-      onClick={() => map.closePopup()} />
-  )
-}
-
-// Agrupa medidores que están a menos de `metros` entre sí. Para distancias
-// tan chicas basta con pasar grados a metros a mano (no hace falta la
-// fórmula de haversine). Comparo contra el primer medidor de cada grupo.
-function agruparCercanos(lista, metros) {
-  const grupos = []
-  for (const m of lista) {
-    const c = m.ubicacion?.coordinates
-    if (!c) continue
-    const [lng, lat] = c
-    const grupo = grupos.find(g => {
-      const [glng, glat] = g[0].ubicacion.coordinates
-      const dx = (lng - glng) * 111320 * Math.cos(lat * Math.PI / 180)
-      const dy = (lat - glat) * 110540
-      return dx * dx + dy * dy <= metros * metros
-    })
-    if (grupo) grupo.push(m)
-    else grupos.push([m])
-  }
-  return grupos
-}
-
-// Pin con un circulito rojo y el número de medidores que hay en ese punto.
-// Uso la misma imagen del pin normal (o dorado) y le pego el contador encima.
-const cacheIconosContador = {}
-function iconoConContador(iconoBase, cantidad) {
-  const url = iconoBase.options.iconUrl
-  const clave = url + cantidad
-  if (!cacheIconosContador[clave]) {
-    cacheIconosContador[clave] = L.divIcon({
-      className: '',
-      html: `<div class="pin-grupo"><img src="${url}" alt="" /><span class="pin-grupo-contador">${cantidad}</span></div>`,
-      iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
-    })
-  }
-  return cacheIconosContador[clave]
-}
-
-// Lo que va dentro del popup. Si en el punto hay un solo medidor, muestra
-// sus datos directo. Si hay varios, primero la lista para elegir cuál, y
-// al elegir uno sus datos con un botón para volver a la lista.
-function ContenidoPopup(props) {
-  // Ojo con esto: React atiende el click ANTES que Leaflet, y como al tocar
-  // un botón de la lista cambio lo que se muestra, cuando el click le llega
-  // a Leaflet el botón ya no existe. Leaflet cree entonces que tocaste el
-  // mapa y cierra el popup. Cortando el click aquí no le llega nunca.
-  return (
-    <div onClick={(e) => e.stopPropagation()}>
-      <ContenidoPopupInterno {...props} />
-    </div>
-  )
-}
-
-function ContenidoPopupInterno({ grupo, elegido, onElegir, esMobil, renderDetalle }) {
-  const [verLista, setVerLista] = useState(!elegido)
-
-  if (grupo.length === 1) return renderDetalle(grupo[0])
-
-  if (elegido && !verLista) {
-    return (
-      <div>
-        <button type="button" className="btn btn-link btn-sm p-0 mb-1"
-          style={{ fontSize: '0.75rem' }} onClick={() => setVerLista(true)}>
-          ← Ver los {grupo.length} de este punto
-        </button>
-        {renderDetalle(elegido)}
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div className="d-flex justify-content-between align-items-center mb-1">
-        <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {grupo.length} medidores aquí</h6>
-        {!esMobil && <CerrarPopup />}
-      </div>
-      <hr style={{ margin: '0.3rem 0' }} />
-      <div className="d-grid gap-1">
-        {grupo.map(m => (
-          <button key={m._id} type="button"
-            className={`btn btn-sm text-start ${elegido?._id === m._id ? 'btn-warning' : 'btn-outline-secondary'}`}
-            style={{ fontSize: '0.8rem' }}
-            onClick={() => {
-              // si ya era el elegido, solo muestro sus datos; si no, lo
-              // selecciono (el pin se vuelve a montar y abre con sus datos)
-              if (elegido?._id === m._id) setVerLista(false)
-              else onElegir(m)
-            }}>
-            <strong>{m.instalacion}</strong>
-            <span className="text-muted"> · {m.estado}</span>
-            {m.numeroDePoste && <span className="text-muted"> · poste {m.numeroDePoste}</span>}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 // Leaflet mide el tamaño de su contenedor UNA vez al montar, y si después
 // ese contenedor cambia de tamaño (se muestra/oculta el panel lateral,
@@ -199,6 +57,55 @@ function InvalidarTamano() {
       window.removeEventListener('orientationchange', recalcular)
     }
   }, [map])
+
+  return null
+}
+
+// Le da al medidor de fluidez una forma de dejar el mapa en una vista exacta.
+// Va por un adaptador y no hablandole a Leaflet directo para que, cuando haya
+// otro motor, la misma herramienta pueda medir los dos y compararlos.
+function RegistrarParaMedicion({ grupos }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!medicionActiva()) return
+    const vista = () => {
+      const c = map.getCenter()
+      return { lat: +c.lat.toFixed(6), lng: +c.lng.toFixed(6), zoom: map.getZoom() }
+    }
+
+    registrarMapaParaMedicion({
+      motor: 'leaflet',
+      // Sin animación: la medición empieza justo después, y una animación en
+      // curso ensuciaría los primeros frames de la corrida.
+      irA: (lat, lng, zoom) => {
+        map.setView([lat, lng], zoom, { animate: false })
+        return vista()
+      },
+
+      // Centra sobre los pines cargados. Hace falta porque una coordenada
+      // escrita a mano puede caer en una zona sin ningún pin, y ahí la
+      // medición deja de decir nada sobre el costo de los marcadores: mide
+      // tiles sobre un mapa vacío. Pasó en la primera corrida anclada.
+      //
+      // El centro es el centroide de los grupos, así que depende solo de los
+      // datos: dos builds con la misma UL cargada miran exactamente lo mismo.
+      irAPines: (zoom) => {
+        if (!grupos.length) return null
+        let lat = 0
+        let lng = 0
+        for (const g of grupos) {
+          lat += g.position[0]
+          lng += g.position[1]
+        }
+        map.setView([lat / grupos.length, lng / grupos.length], zoom, { animate: false })
+        return vista()
+      },
+
+      vista,
+    })
+    return () => registrarMapaParaMedicion(null)
+  }, [map, grupos])
 
   return null
 }
@@ -312,13 +219,116 @@ function leerCapaGuardada() {
 }
 const capaInicial = leerCapaGuardada()
 
-function RecordarCapa() {
+// Y lo mismo con las ULs marcadas. Antes, al cerrar y volver a abrir la app
+// siempre quedaba seleccionada la primera de la lista: si estabas trabajando
+// en la UL de más abajo, tenías que volver a buscarla y marcarla cada vez.
+const CLAVE_ULS = 'ulsActivas'
+function leerUlsGuardadas() {
+  try {
+    const lista = JSON.parse(localStorage.getItem(CLAVE_ULS) ?? '[]')
+    return Array.isArray(lista) ? lista.filter((u) => typeof u === 'string') : []
+  } catch {
+    return []
+  }
+}
+// Se lee UNA vez al cargar el módulo, igual que la capa. Hacerlo dentro del
+// componente no serviría: el efecto que guarda corre al montar, cuando
+// ulsActivas todavía es [], y pisaría lo guardado antes de poder leerlo.
+const ulsIniciales = leerUlsGuardadas()
+
+function RecordarCapa({ onCambio }) {
   useMapEvents({
     baselayerchange: (e) => {
-      try { localStorage.setItem(CLAVE_CAPA, e.name === 'Satélite' ? 'satelite' : 'calles') } catch { /* sin storage, da igual */ }
+      const capa = e.name === 'Satélite' ? 'satelite' : 'calles'
+      try { localStorage.setItem(CLAVE_CAPA, capa) } catch { /* sin storage, da igual */ }
+      // La capa visible también la necesita la precarga, para saber qué
+      // cuadros bajar: no tiene sentido bajar la foto si estás en calles.
+      onCambio(capa)
     },
   })
   return null
+}
+
+// Se resuelve una vez: no puede cambiar durante la sesión.
+const puedePrecargar = hayPrecarga()
+
+// Motor del mapa. El de produccion es MapLibre, sobre GPU.
+//
+// Medido en el telefono (A36, z16, misma zona, misma UL, con la vista anclada):
+// el p95 por frame pasa de 57 ms a 16 ms, o sea por debajo del presupuesto de
+// 16,7 ms de un frame a 60 Hz, y los ~130 marcadores de una ruta dejan de
+// costar +19 ms por frame para no costar nada medible.
+//
+// Leaflet se queda como RED DE SEGURIDAD, no por indecision: la distribucion es
+// por sideload, asi que si algo aparece en terreno no hay forma de publicar un
+// arreglo — hay que reinstalar en cada telefono. Teniendo el motor viejo a un
+// flag de distancia, el lector puede seguir trabajando el mismo dia.
+//
+// Se cambia desde el pie del panel lateral (ver PieDelPanel), que recarga la
+// app. Tambien se puede a mano desde la consola del WebView:
+//   localStorage.setItem('motorMapa', 'leaflet')
+//
+// Se lee UNA vez al cargar el modulo: cambiar de motor en caliente obligaria a
+// desmontar y volver a montar el mapa entero, y no vale la pena por algo que se
+// toca una vez cada varios meses.
+const CLAVE_MOTOR = 'motorMapa'
+const MOTOR_GL = (() => {
+  try { return localStorage.getItem(CLAVE_MOTOR) !== 'leaflet' } catch { return true }
+})()
+
+/**
+ * El pie del panel: qué versión del APK es ésta y con qué motor está dibujando
+ * el mapa.
+ *
+ * La versión NO es un adorno. La app se reparte por sideload, sin Play Store y
+ * sin actualización automática, así que la única forma de saber qué build tiene
+ * un teléfono es preguntársela — y antes había que entrar a los ajustes de
+ * Android a buscarla.
+ *
+ * El cambio de motor tampoco. Leaflet se dejó entero justamente para que, si
+ * MapLibre falla en terreno, el lector siga trabajando el mismo día; pero hasta
+ * acá la única forma de cambiarlo era `localStorage` desde la consola del
+ * WebView, o sea con un cable, adb y DevTools. En el teléfono de un lector eso
+ * no existe, y una salida de emergencia que necesita un PC no es una salida.
+ */
+function PieDelPanel() {
+  const [version, setVersion] = useState(null)
+
+  useEffect(() => {
+    // Sale del APK, así que no hay una segunda copia del número que se pueda
+    // desincronizar con build.gradle. En el navegador no hay versión y el
+    // bloque simplemente no la muestra.
+    App.getInfo()
+      .then((i) => setVersion(`${i.version} (${i.build})`))
+      .catch(() => {})
+  }, [])
+
+  const cambiarMotor = () => {
+    const aClasico = MOTOR_GL
+    const aviso = aClasico
+      ? 'Volver al mapa clásico.\n\nEs más lento pero lleva años andando. Úsalo si el mapa nuevo se porta raro.'
+      : 'Volver al mapa nuevo (más rápido).'
+    if (!confirm(`${aviso}\n\nLa app se va a recargar.`)) return
+    try {
+      if (aClasico) localStorage.setItem(CLAVE_MOTOR, 'leaflet')
+      else localStorage.removeItem(CLAVE_MOTOR)
+    } catch { /* sin storage no se puede cambiar, y tampoco se pudo guardar */ }
+    window.location.reload()
+  }
+
+  return (
+    <div style={{
+      marginTop: 'auto', padding: '0.6rem 0.75rem',
+      borderTop: '1px solid #e2e8f0', fontSize: '0.72rem', color: '#718096',
+    }}>
+      <div>Mapa: <strong>{MOTOR_GL ? 'nuevo' : 'clásico'}</strong></div>
+      <button type="button" className="btn btn-link btn-sm p-0"
+        style={{ fontSize: '0.72rem' }} onClick={cambiarMotor}>
+        {MOTOR_GL ? 'usar el mapa clásico' : 'volver al mapa nuevo'}
+      </button>
+      {version && <div style={{ marginTop: '0.2rem' }}>Versión {version}</div>}
+    </div>
+  )
 }
 
 export default function Mapa() {
@@ -330,6 +340,9 @@ export default function Mapa() {
   const [error, setError]               = useState(null)
   const [busqueda, setBusqueda]         = useState('')
   const [filtroUl, setFiltroUl]         = useState('')
+  // Arranca cerrada si había ULs guardadas (se vuelve a la ruta del día sin
+  // tocar nada) y abierta la primera vez, que es cuando hay que elegir.
+  const [listaUlsAbierta, setListaUlsAbierta] = useState(ulsIniciales.length === 0)
   const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
   const [centroMapa, setCentroMapa]     = useState(null)
   // _id del medidor seleccionado (tocado o encontrado con el buscador),
@@ -339,11 +352,27 @@ export default function Mapa() {
   // también se pinta dorado para que sepas qué punto tocaste
   const [grupoSeleccionado, setGrupoSeleccionado] = useState(null)
 
-  // selecciono un medidor y suelto el grupo que hubiera tocado antes
-  function seleccionarMedidor(id) {
+  // Cuántas veces se eligió un medidor a propósito. NO es lo mismo que
+  // `seleccionadoId`: buscar dos veces seguidas la MISMA instalación no cambia
+  // el id, pero sí es una petición nueva de "mostrame este" y el popup tiene
+  // que volver a abrirse. Es lo que deja al mapa distinguir una selección nueva
+  // de un simple cambio de datos.
+  const [pulsoSeleccion, setPulsoSeleccion] = useState(0)
+
+  // selecciono un medidor y suelto el grupo que hubiera tocado antes.
+  // Los callbacks que recibe CapaMedidores van con useCallback porque sus
+  // marcadores están memoizados: un callback nuevo en cada render haría que
+  // los ~300 pines se re-renderizaran igual y el memo no serviría de nada.
+  const seleccionarMedidor = useCallback((id) => {
     setGrupoSeleccionado(null)
     setSeleccionadoId(id)
-  }
+    setPulsoSeleccion((n) => n + 1)
+  }, [])
+
+  const elegirGrupo = useCallback((idGrupo) => {
+    setSeleccionadoId(null)
+    setGrupoSeleccionado(idGrupo)
+  }, [])
   const [modoAgregar, setModoAgregar]   = useState(false)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
@@ -351,13 +380,115 @@ export default function Mapa() {
   const [guardando, setGuardando]       = useState(false)
   const [panelVisible, setPanelVisible] = useState(true)
 
+  // Lecturas ya tomadas en TOES. Todo el estado vive en el teléfono:
+  // el log tiene datos de clientes y no se sube a ningún servidor.
+  const toes = useToes(ulsActivas)
+
   // Detectar si es móvil
   const esMobil = window.innerWidth < 768
+
+  // La foto satelital de respaldo (z15) se monta SOLO si la foto buena llegó
+  // a fallar alguna vez. Ver el comentario de la capa satelital, más abajo.
+  const [fotoFallo, setFotoFallo] = useState(false)
+
+  // Capa visible: la usan la precarga de tiles (para saber qué cuadros bajar)
+  // y el motor GL, que no tiene el LayersControl de Leaflet.
+  const [capaActiva, setCapaActiva] = useState(capaInicial)
+
+  // En Leaflet la elección se guarda desde el evento baselayerchange; en GL
+  // el botón llama acá. Por eso la escritura al storage vive en los dos lados
+  // y no dentro de RecordarCapa.
+  const cambiarCapa = useCallback((capa) => {
+    setCapaActiva(capa)
+    try { localStorage.setItem(CLAVE_CAPA, capa) } catch { /* sin storage, da igual */ }
+  }, [])
+
+  // Estable: MapaGL la usa dentro de un efecto con dependencias.
+  const avisarErrorUbicacion = useCallback((msg, fatal) => {
+    alert(msg)
+    if (fatal) setMiUbicacionActiva(false)
+  }, [])
+  // Descarga de tiles en curso: { ul, hechas, total, fallidas, mensaje }
+  const [precarga, setPrecarga] = useState(null)
+  // Estable: un objeto nuevo en cada render haría que react-leaflet
+  // desenganchara y volviera a enganchar el listener de la capa entera.
+  const manejadoresFoto = useMemo(() => ({
+    tileerror: () => setFotoFallo(true),
+  }), [])
 
   // Junto los medidores que están prácticamente en el mismo punto (mismo
   // poste o misma casa) en un solo pin con contador, porque si no quedan
   // uno encima de otro y no hay forma de tocar los de abajo
   const grupos = useMemo(() => agruparCercanos(medidores, 5), [medidores])
+
+  // Capa TOES: para cada grupo, qué servicios quedan por visitar, con qué
+  // icono y opacidad. Saca del pin lo que el lector ya tomó en el ciclo
+  // vigente; si no queda ninguno, el pin no se dibuja. Nunca se borra nada:
+  // solo cambia la visibilidad.
+  //
+  // Memoizado para que los objetos `vista` mantengan su identidad entre
+  // renders. Si se calcularan dentro del render de la lista, cada uno sería
+  // un objeto nuevo y rompería el memo de los marcadores.
+  // Todo lo que muestra el panel Resumen, en UNA pasada sobre los medidores.
+  // Antes eran cuatro `medidores.filter(...)` escritos en el JSX, o sea cuatro
+  // recorridos de la lista entera y cuatro arrays intermedios en CADA render de
+  // Mapa: al escribir una letra en el buscador, al abrir el panel, al tocar un
+  // pin. Nada de eso tiene que ver con el Resumen.
+  //
+  // Los puntos donde ya no hay medidor se cuentan aparte de `estado` porque son
+  // dos cosas distintas: `estado` es el mapeo, esto es memoria de terreno.
+  const resumen = useMemo(() => {
+    let localizado = 0, pendiente = 0, perdido = 0, revision = 0
+    let confirmados = 0, propuestos = 0
+    for (const m of medidores) {
+      if (m.estado === 'localizado') localizado++
+      else if (m.estado === 'pendiente') pendiente++
+      else if (m.estado === 'perdido') perdido++
+      else if (m.estado === 'revision') revision++
+
+      if (!m.marcaPermanente) continue
+      if (m.marcaPermanente.situacion === 'confirmada') confirmados++
+      else propuestos++
+    }
+    return {
+      localizado, pendiente, perdido, revision,
+      confirmados, propuestos, marcados: confirmados + propuestos,
+    }
+  }, [medidores])
+
+  // Las vistas van en DOS memos y no en uno, y la razón es el rendimiento al
+  // tocar un pin.
+  //
+  // `seleccionadoId` entra en vistaDeGrupo por una sola cosa: que un medidor
+  // elegido a propósito se vea aunque TOES ya lo haya tomado (si no, buscar una
+  // instalación tomada no mostraría nada y el buscador parecería roto). Pero
+  // tenerlo en las dependencias del memo significaba recalcular los 1.765
+  // grupos en cada toque — cada uno con su Map y sus arrays nuevos — y, peor,
+  // devolver objetos `vista` con identidad nueva para TODOS. Eso rompía el memo
+  // de cada MarcadorGrupo montado, que es justo lo que el culling y la
+  // memoización fueron a arreglar.
+  //
+  // Ahora la base no sabe de la selección, así que conserva su identidad, y
+  // solo se recalcula el grupo donde está el medidor elegido.
+  const vistasBase = useMemo(
+    () => grupos.map((g) => vistaDeGrupo(
+      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, null
+    )),
+    [grupos, toes.indice, toes.config, toes.verTomados]
+  )
+
+  const vistas = useMemo(() => {
+    if (!seleccionadoId) return vistasBase
+    const i = grupos.findIndex((g) => g.medidores.some((m) => m._id === seleccionadoId))
+    // El elegido puede no estar en lo cargado: se busca por instalación en otra
+    // UL y el pin todavía no llegó. Ahí no hay nada que recalcular.
+    if (i === -1) return vistasBase
+    const copia = vistasBase.slice()
+    copia[i] = vistaDeGrupo(
+      grupos[i].medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
+    )
+    return copia
+  }, [vistasBase, grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId])
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -368,22 +499,33 @@ export default function Mapa() {
 
   const CENTRO_MAULE = [-35.5, -71.65]
 
-  useEffect(() => { cargarUls() }, [])
-  useEffect(() => {
-    if (ulsActivas.length > 0) cargarMedidores()
-    else setMedidores([])
-  }, [ulsActivas])
-
-  async function cargarUls() {
+  // OJO con el orden: estas dos van ANTES de los useEffect que las usan.
+  // `cargarMedidores` es un const, y un const no se hoistea como una function:
+  // si queda debajo, el array de dependencias del efecto — que se evalúa
+  // durante el render — lo lee antes de que exista y tira
+  // "Cannot access 'cargarMedidores' before initialization". Eso revienta el
+  // render de Mapa, React desmonta el árbol y la app queda en blanco.
+  // `alAbrir` separa el arranque de una recarga con la app abierta (importar
+  // un KML, eliminar una ruta): solo al arrancar se restaura lo guardado; si
+  // no, se pisaba lo que el lector marcó durante la sesión.
+  async function cargarUls({ alAbrir = false } = {}) {
     try {
       const { data } = await api.get('/medidores/uls')
       setUls(data.uls)
-      if (data.uls.length > 0) setUlsActivas([data.uls[0]])
+      // La regla de qué se restaura vive en utils/ulsActivas.js, con tests:
+      // descartar una UL que ya no existe falla en silencio (el mapa queda
+      // vacío sin decir por qué).
+      if (alAbrir) {
+        const restauradas = ulsARestaurar(ulsIniciales, data.uls)
+        if (restauradas.length > 0) setUlsActivas(restauradas)
+      } else {
+        setUlsActivas((prev) => ulsTrasRecargar(prev, data.uls))
+      }
     } catch { setError('Error al cargar las unidades de lectura') }
     finally { setCargando(false) }
   }
 
-  async function cargarMedidores() {
+  const cargarMedidores = useCallback(async () => {
     try {
       setCargando(true)
       const promesas = ulsActivas.map(ul => api.get(`/medidores?ul=${ul}&limite=500`))
@@ -393,7 +535,27 @@ export default function Mapa() {
       setMedidores(unicos)
     } catch { setError('Error al cargar los medidores') }
     finally { setCargando(false) }
-  }
+  }, [ulsActivas])
+
+  useEffect(() => { cargarUls({ alAbrir: true }) }, [])
+  useEffect(() => {
+    if (ulsActivas.length > 0) cargarMedidores()
+    else setMedidores([])
+    // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
+    // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
+  }, [ulsActivas, cargarMedidores])
+
+  // Guardar lo que esté marcado. El guard de `uls` evita el momento del
+  // montaje, cuando todavía no llegó la lista y ulsActivas es [].
+  useEffect(() => {
+    if (!uls.length) return
+    try { localStorage.setItem(CLAVE_ULS, JSON.stringify(ulsActivas)) } catch { /* sin storage, da igual */ }
+  }, [ulsActivas, uls])
+
+  // Lo que TOES dice sobre los puntos donde ya no hay medidor se manda al
+  // servidor, porque la marca tiene que verla el lector del mes siguiente
+  // — que puede ser otra persona y otro teléfono.
+  useMarcasToes(medidores, toes.indice, toes.config, cargarMedidores)
 
   function toggleUl(ul) {
     setUlsActivas(prev =>
@@ -406,12 +568,20 @@ export default function Mapa() {
     const texto = busqueda.trim()
     if (!texto) return
 
+    // Se busca SOLO en las ULs marcadas. Antes, si no aparecía ahí, caía a una
+    // búsqueda en todas las rutas y marcaba sola la UL del primer resultado:
+    // los "últimos dígitos" casi siempre se repiten en alguna otra ruta, así
+    // que el lector terminaba en un medidor ajeno y con otra UL cargada.
+    if (ulsActivas.length === 0) {
+      alert('Marca primero la UL en la que quieres buscar.')
+      return
+    }
+
     // Si es puro número (los últimos 4-5 dígitos del medidor), busco
-    // primero dentro de lo que ya está cargado (o sea, dentro de las ULs
-    // que tienes marcadas) comparando el FINAL del número de instalación
-    // — así "1234" encuentra el medidor 103382314 sin ambigüedad con
-    // otros números que solo lo contengan en el medio.
-    if (/^\d+$/.test(texto) && ulsActivas.length > 0) {
+    // primero dentro de lo que ya está cargado comparando el FINAL del
+    // número de instalación — así "1234" encuentra el medidor 103381234 sin
+    // ambigüedad con otros números que solo lo contengan en el medio.
+    if (/^\d+$/.test(texto)) {
       const candidatos = medidores.filter((m) => m.instalacion?.endsWith(texto))
 
       if (candidatos.length === 1) {
@@ -424,12 +594,13 @@ export default function Mapa() {
         alert(`Hay ${candidatos.length} medidores que terminan en "${texto}" en las ULs marcadas. Escribe más dígitos para precisar.`)
         return
       }
-      // Si no hay ninguno en las ULs activas, sigo abajo con la búsqueda
-      // general por si el medidor está en otra UL que no tienes marcada.
+      // Si no está en lo cargado igual se pregunta al servidor, restringido a
+      // las mismas ULs: la carga trae hasta 500 por UL y puede quedar corta.
     }
 
     try {
-      const { data } = await api.get(`/medidores/buscar?q=${texto}`)
+      const params = new URLSearchParams({ q: texto, ul: ulsActivas.join(',') })
+      const { data } = await api.get(`/medidores/buscar?${params}`)
       if (data.medidores.length > 0) {
         const m = data.medidores[0]
         if (m.ubicacion?.coordinates) {
@@ -437,16 +608,13 @@ export default function Mapa() {
           setCentroMapa([lat, lng])
         }
         seleccionarMedidor(m._id)
-        // Si el medidor es de una UL que no tienes marcada, la marco yo,
-        // porque si no su pin no está cargado y no hay nada que resaltar
-        if (m.unidadDeLectura && !ulsActivas.includes(m.unidadDeLectura)) {
-          setUlsActivas((prev) => [...prev, m.unidadDeLectura])
-        }
-      } else { alert('No se encontró ningún medidor') }
+      } else {
+        alert(`No se encontró "${texto}" en ${ulsActivas.length === 1 ? 'la UL ' + ulsActivas[0] : 'las ULs marcadas'}.`)
+      }
     } catch { setError('Error al buscar') }
   }
 
-  function abrirFormulario(medidor = null, coords = null) {
+  const abrirFormulario = useCallback((medidor = null, coords = null) => {
     if (medidor) {
       setCampos({
         instalacion:     medidor.instalacion     || '',
@@ -477,7 +645,7 @@ export default function Mapa() {
     setFormulario(true)
     // En móvil ocultamos el panel lateral para dar más espacio
     if (esMobil) setPanelVisible(false)
-  }
+  }, [ulsActivas, esMobil])
 
   function cerrarFormulario() {
     setFormulario(false)
@@ -506,13 +674,39 @@ export default function Mapa() {
     } finally { setGuardando(false) }
   }
 
-  async function handleEliminar(instalacion) {
+  // Resolver una marca permanente: confirmarla (el punto queda descartado
+  // para los próximos meses), rechazarla (deja constancia de que alguien dijo
+  // que sí hay medidor, y evita que el sondeo la reponga) o quitarla del todo.
+  const resolverMarca = useCallback(async (instalacion, accion, tipo) => {
+    try {
+      if (accion === 'quitar') {
+        await api.delete(`/medidores/${instalacion}/marca`)
+      } else if (accion === 'marcar') {
+        // Marcado a mano por un admin o supervisor. Son dos llamadas porque
+        // reusa los endpoints que ya existen, y el historial queda honesto:
+        // la propuso y la confirmó la misma persona. Es la única vía para
+        // "sin empalme", que TOES no puede reportar (su clave 16 está
+        // inactiva y va como submenú de la 05).
+        await api.post(`/medidores/${instalacion}/marca`, { tipo })
+        await api.patch(`/medidores/${instalacion}/marca`, { situacion: 'confirmada' })
+      } else {
+        await api.patch(`/medidores/${instalacion}/marca`, {
+          situacion: accion === 'confirmar' ? 'confirmada' : 'rechazada',
+        })
+      }
+      await cargarMedidores()
+    } catch (err) {
+      alert(err.response?.data?.error || 'No se pudo actualizar la marca')
+    }
+  }, [cargarMedidores])
+
+  const handleEliminar = useCallback(async (instalacion) => {
     if (!confirm(`¿Eliminar el medidor ${instalacion}?`)) return
     try {
       await api.delete(`/medidores/${instalacion}`)
       await cargarMedidores()
     } catch (err) { alert(err.response?.data?.error || 'Error al eliminar') }
-  }
+  }, [cargarMedidores])
 
   // El backend devuelve el medidor ya actualizado (con la foto nueva
   // adentro), así que solo actualizamos el estado local con eso — no hace
@@ -520,6 +714,57 @@ export default function Mapa() {
   function handleFotoSubida(medidorActualizado) {
     setMedidorEdit(medidorActualizado)
     cargarMedidores()
+  }
+
+  // Baja con wifi los cuadros del mapa de una ruta, para que en terreno no haya
+  // que esperar a Esri. Las coordenadas salen de medidores[].ubicacion, o sea
+  // de la base — NUNCA del log de TOES: pedir un tile le manda esa coordenada
+  // a Esri, y las del log son datos de clientes que no salen del telefono.
+  async function descargarMapaDeRuta(ul) {
+    const deLaRuta = medidores.filter((m) => m.unidadDeLectura === ul)
+    if (!deLaRuta.length) {
+      alert(`No hay medidores cargados de la ruta ${ul}.`)
+      return
+    }
+
+    const p = presupuestoDeRuta(deLaRuta, capaActiva)
+    if (!p.cantidad) {
+      alert(`Los medidores de ${ul} no tienen ubicación, así que no hay nada que bajar.`)
+      return
+    }
+
+    // Se pregunta antes porque son decenas de MB: empezar eso sin avisar, con
+    // datos móviles, sería gastarle el plan al lector sin que se entere.
+    const recorte = p.truncado
+      ? `
+
+Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando por los zooms generales.`
+      : ''
+    const seguir = confirm(
+      `¿Descargar el mapa de ${ul} en ${nombreDeCapa(capaActiva)}?
+
+` +
+      `≈ ${p.cantidad} cuadros, ~${p.mb} MB.
+` +
+      `Conviene hacerlo con wifi.${recorte}`
+    )
+    if (!seguir) return
+
+    setPrecarga({ ul, hechas: 0, total: p.cantidad })
+    try {
+      const r = await descargarRuta(deLaRuta, capaActiva, (a) => {
+        setPrecarga({ ul, hechas: a.hechas, total: a.total, fallidas: a.fallidas })
+      })
+      setPrecarga({
+        ul, hechas: r.hechas, total: r.total, fallidas: r.fallidas,
+        mensaje: r.sinEspacio
+          // Lo que alcanzó a bajarse queda y sirve: simplemente no está completo.
+          ? `Se acabó el espacio del teléfono: quedaron ${r.hechas} de ${r.total}. Lo bajado sirve igual.`
+          : `Listo: ${r.hechas} cuadros${r.fallidas ? `, ${r.fallidas} fallaron` : ''}.`,
+      })
+    } catch (err) {
+      setPrecarga({ ul, mensaje: err?.message ?? 'No se pudo descargar el mapa de la ruta' })
+    }
   }
 
   async function handleExportarRuta(ul) {
@@ -551,6 +796,66 @@ export default function Mapa() {
     } catch (err) {
       alert(err.response?.data?.error || 'Error al eliminar la ruta')
     }
+  }
+
+  const ulsFiltradas = uls.filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
+
+  // Una fila del panel de ULs. Es función y no componente porque se usa en
+  // las dos vistas del desplegable (cerrado: solo las marcadas; abierto: todas).
+  function filaUl(ul) {
+    return (
+      <div key={ul}>
+        <div className="d-flex align-items-center justify-content-between mb-1">
+          <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
+            <input className="form-check-input" type="checkbox"
+              id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
+              onChange={() => toggleUl(ul)} />
+            <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
+              style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
+          </div>
+          {/* Solo para las rutas marcadas: los medidores de una
+              UL sin marcar no están cargados, así que no se sabe
+              qué cuadros bajar. Y solo en el APK, que es donde
+              tiene sentido salir a terreno sin señal. */}
+          {puedePrecargar && ulsActivas.includes(ul) && (
+            <button className="btn btn-sm p-0 px-1" title="Descargar el mapa de esta ruta (usar con wifi)"
+              onClick={() => descargarMapaDeRuta(ul)}
+              disabled={Boolean(precarga) && !precarga.mensaje}
+              style={{ fontSize: '0.85rem' }}>
+              🗺️
+            </button>
+          )}
+          {/* Exportar la deja ver admin y supervisor; eliminar
+              la ruta completa es una acción destructiva, solo
+              para admin. */}
+          {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
+            <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
+              onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+              📥
+            </button>
+          )}
+          {usuario.rol === 'admin' && (
+            <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
+              onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
+              🗑️
+            </button>
+          )}
+        </div>
+
+        {precarga?.ul === ul && (
+          <div
+            onClick={() => precarga.mensaje && setPrecarga(null)}
+            title={precarga.mensaje ? 'Tocar para ocultar' : undefined}
+            style={{
+              fontSize: '0.72rem', color: '#4a5568',
+              margin: '-0.2rem 0 0.4rem 1.5rem',
+              cursor: precarga.mensaje ? 'pointer' : 'default',
+            }}>
+            {precarga.mensaje ?? `Bajando el mapa… ${precarga.hechas} / ${precarga.total}`}
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (cargando && uls.length === 0) return (
@@ -595,57 +900,63 @@ export default function Mapa() {
             overflowY: 'auto', zIndex: 100,
           }}>
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
-              <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
-                📋 Unidades de Lectura
-              </p>
+              {/* Desplegable: con 200+ rutas la lista abierta ocupaba todo el
+                  panel y empujaba TOES y el Resumen fuera de la pantalla. Cerrado
+                  muestra solo las ULs marcadas, que son con las que se trabaja
+                  en el día y las que tienen los botones de mapa y exportar. */}
+              <button type="button" onClick={() => setListaUlsAbierta((a) => !a)}
+                aria-expanded={listaUlsAbierta}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  background: 'none', border: 'none', padding: 0, textAlign: 'left',
+                  fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0',
+                }}>
+                <span style={{ flex: 1 }}>📋 Unidades de Lectura</span>
+                <span style={{ fontWeight: 'normal', fontSize: '0.75rem', color: '#718096' }}>
+                  {ulsActivas.length === 0 ? 'ninguna' : `${ulsActivas.length} marcada${ulsActivas.length > 1 ? 's' : ''}`}
+                </span>
+                <span>{listaUlsAbierta ? '▴' : '▾'}</span>
+              </button>
 
-              {/* Con 200+ rutas, la lista completa de checkboxes se hace
-                  eterna. Este filtro corta la lista visible al toque, y el
-                  contenedor de abajo tiene una altura tope con scroll para
-                  que nunca vuelva a crecer indefinidamente. */}
-              <input
-                type="text"
-                className="form-control form-control-sm mb-2"
-                placeholder="Filtrar UL..."
-                value={filtroUl}
-                onChange={(e) => setFiltroUl(e.target.value)}
-              />
+              {!listaUlsAbierta && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  {ulsActivas.length === 0
+                    ? (
+                      <button type="button" className="btn btn-outline-primary btn-sm w-100"
+                        onClick={() => setListaUlsAbierta(true)}>
+                        Elegir UL
+                      </button>
+                    )
+                    : ulsActivas.map(filaUl)}
+                </div>
+              )}
 
-              <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
-                {uls
-                  .filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase()))
-                  .map(ul => (
-                    <div key={ul} className="d-flex align-items-center justify-content-between mb-1">
-                      <div className="form-check" style={{ flex: 1, minWidth: 0 }}>
-                        <input className="form-check-input" type="checkbox"
-                          id={`ul-${ul}`} checked={ulsActivas.includes(ul)}
-                          onChange={() => toggleUl(ul)} />
-                        <label className="form-check-label text-truncate d-block" htmlFor={`ul-${ul}`}
-                          style={{ fontSize: '0.85rem', cursor: 'pointer' }}>{ul}</label>
-                      </div>
-                      {/* Exportar la deja ver admin y supervisor; eliminar
-                          la ruta completa es una acción destructiva, solo
-                          para admin. */}
-                      {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                        <button className="btn btn-sm p-0 px-1" title="Exportar ruta (formato SAP)"
-                          onClick={() => handleExportarRuta(ul)} style={{ fontSize: '0.85rem' }}>
-                          📥
-                        </button>
-                      )}
-                      {usuario.rol === 'admin' && (
-                        <button className="btn btn-sm p-0 px-1" title="Eliminar ruta completa"
-                          onClick={() => handleEliminarRuta(ul)} style={{ fontSize: '0.85rem' }}>
-                          🗑️
-                        </button>
-                      )}
-                    </div>
-                  ))
-                }
-                {filtroUl && uls.filter((ul) => ul.toLowerCase().includes(filtroUl.toLowerCase())).length === 0 && (
-                  <p className="text-muted" style={{ fontSize: '0.78rem' }}>Sin resultados</p>
-                )}
-              </div>
+              {listaUlsAbierta && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <input
+                    type="text"
+                    className="form-control form-control-sm mb-2"
+                    placeholder="Filtrar UL..."
+                    value={filtroUl}
+                    onChange={(e) => setFiltroUl(e.target.value)}
+                  />
+
+                  <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                    {ulsFiltradas.map(filaUl)}
+                    {ulsFiltradas.length === 0 && (
+                      <p className="text-muted" style={{ fontSize: '0.78rem' }}>Sin resultados</p>
+                    )}
+                  </div>
+
+                  <button type="button" className="btn btn-primary btn-sm w-100 mt-2"
+                    onClick={() => { setListaUlsAbierta(false); setFiltroUl('') }}>
+                    Listo
+                  </button>
+                </div>
+              )}
             </div>
+
+            <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
 
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
               <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>
@@ -653,10 +964,18 @@ export default function Mapa() {
               </p>
               <div style={{ fontSize: '0.82rem' }}>
                 <div>Total: <strong>{medidores.length}</strong></div>
-                <div style={{ color: 'green' }}>✅ Localizados: <strong>{medidores.filter(m => m.estado === 'localizado').length}</strong></div>
-                <div style={{ color: '#2196F3' }}>🔵 Pendientes: <strong>{medidores.filter(m => m.estado === 'pendiente').length}</strong></div>
-                <div style={{ color: 'red' }}>❌ Perdidos: <strong>{medidores.filter(m => m.estado === 'perdido').length}</strong></div>
-                <div style={{ color: 'orange' }}>⚠️ Revisión: <strong>{medidores.filter(m => m.estado === 'revision').length}</strong></div>
+                <div style={{ color: 'green' }}>✅ Localizados: <strong>{resumen.localizado}</strong></div>
+                <div style={{ color: '#2196F3' }}>🔵 Pendientes: <strong>{resumen.pendiente}</strong></div>
+                <div style={{ color: 'red' }}>❌ Perdidos: <strong>{resumen.perdido}</strong></div>
+                <div style={{ color: 'orange' }}>⚠️ Revisión: <strong>{resumen.revision}</strong></div>
+                {resumen.marcados > 0 && (
+                  <div style={{ color: '#A1887F', marginTop: '0.2rem' }}>
+                    🚫 Sin medidor en terreno: <strong>{resumen.confirmados}</strong>
+                    {resumen.propuestos > 0 && (
+                      <span style={{ color: '#718096' }}> (+{resumen.propuestos} por confirmar)</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -684,6 +1003,8 @@ export default function Mapa() {
                 </div>
               )}
             </div>
+
+            <PieDelPanel />
           </div>
         )}
 
@@ -734,7 +1055,43 @@ export default function Mapa() {
               Si dejaba acercar más, en el teléfono aparecían cuadrados grises.
               Con el pin no se pierde precisión: queda en la coordenada exacta
               donde tocas, da igual el zoom. */}
-          <MapContainer center={CENTRO_MAULE} zoom={13} maxZoom={18} style={{ height: '100%', width: '100%' }}>
+          {MOTOR_GL ? (
+            <MapaGL
+              grupos={grupos}
+              vistas={vistas}
+              seleccionadoId={seleccionadoId}
+              grupoSeleccionado={grupoSeleccionado}
+              pulsoSeleccion={pulsoSeleccion}
+              esMobil={esMobil}
+              rolUsuario={usuario.rol}
+              toesConfig={toes.config}
+              onElegir={seleccionarMedidor}
+              onElegirGrupo={elegirGrupo}
+              onEditar={abrirFormulario}
+              onEliminar={handleEliminar}
+              onFotoSubida={cargarMedidores}
+              onResolverMarca={resolverMarca}
+              capa={capaActiva}
+              onCambioCapa={cambiarCapa}
+              centroMapa={centroMapa}
+              modoAgregar={modoAgregar}
+              onClickMapa={(coords) => abrirFormulario(null, coords)}
+              nuevoPunto={nuevoPunto}
+              miUbicacionActiva={miUbicacionActiva}
+              onErrorUbicacion={avisarErrorUbicacion}
+            />
+          ) : (
+          <MapContainer
+            center={CENTRO_MAULE} zoom={13} maxZoom={18}
+            style={{ height: '100%', width: '100%' }}
+            // Acá estuvo markerZoomAnimation={false} y se quitó a propósito.
+            // Ahorra el handler de `zoomanim` por marcador, que con 300 pines
+            // pesaba, pero Leaflet lo implementa poniéndole `leaflet-zoom-hide`
+            // al panel: los pines se OCULTAN durante toda la animación y
+            // reaparecen de golpe. Eso se lee como una falla, no como fluidez.
+            // El culling de CapaMedidores ataca lo mismo sin ese costo: con
+            // ~10-40 pines en pantalla en vez de 300, el handler ya no importa.
+          >
             {/* Selector de capas (arriba a la derecha): calles o satélite.
                 La satelital es de Esri, sirve para ver las casas y ubicar
                 el medidor mejor en terreno. No pide API key. */}
@@ -746,7 +1103,7 @@ export default function Mapa() {
                   // OpenStreetMap directo, que no piden key (para el uso que le
                   // damos, un equipo chico, está dentro de su política).
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  url={URL_CALLES}
                   // todas las capas con techo 18 (ver comentario del MapContainer)
                   maxZoom={18}
                   // updateWhenIdle: con señal mala, pedir tiles nuevos en cada
@@ -760,49 +1117,76 @@ export default function Mapa() {
 
               <LayersControl.BaseLayer name="Satélite" checked={capaInicial === 'satelite'}>
                 {/* La foto sola no tiene nombres de calles, así que encima le
-                    pongo las capas de referencia de Esri (calles y lugares)
-                    para no perderse en sectores rurales */}
+                    pongo la capa de referencia de Esri (caminos y sus nombres)
+                    para no perderse en sectores rurales.
+
+                    Acá había también World_Boundaries_and_Places (nombres de
+                    localidades y límites) y se quitó. Midiendo el caché de
+                    tiles del teléfono, cada capa de referencia pesaba lo mismo
+                    que la foto: de 1.093 tiles cacheados, 313 eran de esa capa
+                    sola — un 29% del tráfico del mapa. En el Maule rural los
+                    caminos ya ubican, y sus nombres salen en la capa que
+                    queda. */}
                 <LayerGroup>
                   {/* Probé con medidores reales de las 6 ULs: Esri tiene foto
                       real hasta z18 en toda la zona, y en z19 devuelve el
                       cuadro gris ("Map data not yet available"). Por eso el
                       mapa completo no deja pasar de z18.
 
-                      Por si algún sector raro no tiene ni z18, dejo dos capas:
-                      1) Abajo, la foto hasta z15, que existe en todo Chile.
-                      2) Arriba, la foto buena. Con blankTile=false, donde no
-                         hay foto Esri debería mandar error en vez del gris,
-                         y ahí se ve la de abajo. */}
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                    maxNativeZoom={15}
-                    maxZoom={18}
-                    updateWhenIdle={true}
-                    crossOrigin="anonymous"
-                  />
+                      Por si algún sector raro no tiene ni z18 está la foto de
+                      respaldo hasta z15, que existe en todo Chile. Pero ahora
+                      se monta SOLO cuando la foto buena llegó a fallar.
+
+                      Antes estaba siempre, y eso costaba una rejilla entera de
+                      <img> del DOM, sus peticiones y su parte de las 1.500
+                      entradas del caché — midiendo el caché del teléfono, cada
+                      capa de referencia pesaba tanto como la foto misma. Y el
+                      propio README ya había verificado que a z18 la foto buena
+                      carga sin UN SOLO fallo en toda la zona: o sea que el
+                      respaldo era peso muerto el 100 % del tiempo en el área
+                      medida.
+
+                      Lo que se paga: donde la foto buena sí falle, ahora se ve
+                      el cuadro gris un instante hasta que el respaldo monta y
+                      carga. Y una vez montado se queda — también si el
+                      tileerror vino de quedarse sin señal y no de un sector sin
+                      foto. Eso es exactamente lo que hacía antes; lo que se
+                      gana es el caso normal, que es el que corre todo el día.
+
+                      El orden lo fija zIndex y NO el orden de montaje: si no,
+                      el respaldo entraría encima de la foto buena al montarse
+                      tarde y la taparía justo donde se la necesita. */}
+                  {fotoFallo && (
+                    <TileLayer
+                      url={URL_FOTO_RESPALDO}
+                      maxNativeZoom={15}
+                      maxZoom={18}
+                      updateWhenIdle={true}
+                      zIndex={1}
+                      crossOrigin="anonymous"
+                    />
+                  )}
                   <TileLayer
                     attribution='Imágenes &copy; Esri, Maxar, Earthstar Geographics'
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false"
+                    url={URL_FOTO}
                     maxZoom={18}
                     updateWhenIdle={true}
+                    zIndex={2}
                     crossOrigin="anonymous"
+                    eventHandlers={manejadoresFoto}
                   />
                   <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                    url={URL_CAMINOS}
                     maxZoom={18}
                     updateWhenIdle={true}
-                    crossOrigin="anonymous"
-                  />
-                  <TileLayer
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                    maxZoom={18}
-                    updateWhenIdle={true}
+                    zIndex={3}
                     crossOrigin="anonymous"
                   />
                 </LayerGroup>
               </LayersControl.BaseLayer>
             </LayersControl>
-            <RecordarCapa />
+            <RecordarCapa onCambio={setCapaActiva} />
+            <RegistrarParaMedicion grupos={grupos} />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <InvalidarTamano />
             <CapturarClick
@@ -811,7 +1195,11 @@ export default function Mapa() {
             />
             <MiUbicacion
               activo={miUbicacionActiva}
-              onError={(msg) => { alert(msg); setMiUbicacionActiva(false) }}
+              // `fatal` es solo el permiso denegado. Perder señal un rato es
+              // normal en terreno: ahí se avisa pero el seguimiento sigue
+              // prendido, para no obligar a volver a tocar el botón cada vez
+              // que el GPS se cae bajo unos árboles.
+              onError={(msg, fatal) => { alert(msg); if (fatal) setMiUbicacionActiva(false) }}
             />
             {nuevoPunto && (
               <Marker position={nuevoPunto} icon={iconos.nuevo}>
@@ -819,96 +1207,27 @@ export default function Mapa() {
               </Marker>
             )}
 
-            {grupos.map(grupo => {
-              const [lng, lat] = grupo[0].ubicacion.coordinates
-              const elegido = grupo.find(m => m._id === seleccionadoId)
-              const varios = grupo.length > 1
-              const idGrupo = grupo.map(m => m._id).join('-')
-              // dorado si el medidor seleccionado está aquí o si tocaste
-              // este grupo; si no, el color por estado del primero.
-              // Si son varios, va con el contador.
-              const marcado = !!elegido || grupoSeleccionado === idGrupo
-              const base = marcado ? iconoSeleccionado : (iconos[grupo[0].estado] || iconos.pendiente)
-              const icono = varios ? iconoConContador(base, grupo.length) : base
-              return (
-                <Marker
-                  // cambio la key al seleccionarlo para que el marcador se
-                  // vuelva a montar en dorado y abra su popup solo (evento
-                  // "add"); así funciona igual si lo tocaste o lo buscaste
-                  // (lleva el id del elegido para que también se vuelva a montar al
-                  // elegir otro medidor del mismo grupo)
-                  key={elegido ? idGrupo + '-sel-' + elegido._id : (marcado ? idGrupo + '-grupo' : idGrupo)}
-                  position={[lat, lng]}
-                  icon={icono}
-                  // encima de los demás pines si están pegados
-                  zIndexOffset={marcado ? 1000 : 0}
-                  eventHandlers={marcado
-                    ? { add: (e) => e.target.openPopup() }
-                    // si es uno solo lo selecciono al tocarlo; si son varios
-                    // marco el grupo (dorado) y se abre la lista para elegir
-                    : (varios
-                      ? { click: () => { setSeleccionadoId(null); setGrupoSeleccionado(idGrupo) } }
-                      : { click: () => seleccionarMedidor(grupo[0]._id) })}
-                >
-                  {/* En escritorio el popup sale a la DERECHA del pin (clase
-                      popup-derecha en index.css) para no tapar los pines de
-                      arriba. En el celular no hay espacio al lado, así que
-                      ahí sigue saliendo arriba como siempre. Los paddings
-                      son para que Leaflet mueva el mapa si el popup no cabe. */}
-                  <Popup
-                    minWidth={220} maxWidth={260}
-                    className={esMobil ? '' : 'popup-derecha'}
-                    closeButton={esMobil}
-                    autoPanPaddingTopLeft={[20, 20]}
-                    autoPanPaddingBottomRight={esMobil ? [20, 20] : [170, 230]}
-                  >
-                    <ContenidoPopup
-                      grupo={grupo}
-                      elegido={elegido}
-                      onElegir={(m) => seleccionarMedidor(m._id)}
-                      esMobil={esMobil}
-                      renderDetalle={(m) => (
-                        <div>
-                          <div className="d-flex justify-content-between align-items-center mb-1">
-                            <h6 style={{ fontSize: '0.9rem' }} className="mb-0">📍 {m.instalacion}</h6>
-                            {!esMobil && <CerrarPopup />}
-                          </div>
-                          <hr style={{ margin: '0.3rem 0' }} />
-                          <p style={{ margin: 0, fontSize: '0.8rem' }}>
-                            <strong>Estado:</strong> {m.estado}<br />
-                            <strong>Dirección:</strong> {m.direccion || '—'}<br />
-                            <strong>Poste:</strong> {m.numeroDePoste || '—'}<br />
-                            <strong>Serie:</strong> {m.numeroDeSerie || '—'}<br />
-                            {(usuario.rol === 'admin' || usuario.rol === 'supervisor') && (
-                              <><strong>UL:</strong> {m.unidadDeLectura || '—'}<br /></>
-                            )}
-                            {m.observaciones && <><strong>Obs:</strong> {m.observaciones}<br /></>}
-                          </p>
-                          <div className="d-flex gap-1 mt-2">
-                            <button className="btn btn-primary btn-sm"
-                              onClick={() => abrirFormulario(m)}>✏️ Editar</button>
-                            {usuario.rol === 'admin' && (
-                              <button className="btn btn-danger btn-sm"
-                                onClick={() => handleEliminar(m.instalacion)}>🗑️</button>
-                            )}
-                          </div>
-
-                          {/* Foto directo desde el popup, sin tener que entrar
-                              a editar — así el técnico saca la foto ahí mismo,
-                              parado frente al medidor. */}
-                          <CapturaFoto
-                            instalacion={m.instalacion}
-                            fotosExistentes={m.fotos}
-                            onFotoSubida={() => cargarMedidores()}
-                          />
-                        </div>
-                      )}
-                    />
-                  </Popup>
-                </Marker>
-              )
-            })}
+            {/* Los pines. Toda la lógica de qué se dibuja y qué muestra cada
+                popup vive en CapaMedidores: ahí los marcadores están
+                memoizados y solo se dibujan los del cuadro visible, que es lo
+                que hace que arrastrar y hacer zoom con 300 pines no se trabe. */}
+            <CapaMedidores
+              grupos={grupos}
+              vistas={vistas}
+              seleccionadoId={seleccionadoId}
+              grupoSeleccionado={grupoSeleccionado}
+              esMobil={esMobil}
+              rolUsuario={usuario.rol}
+              toesConfig={toes.config}
+              onElegir={seleccionarMedidor}
+              onElegirGrupo={elegirGrupo}
+              onEditar={abrirFormulario}
+              onEliminar={handleEliminar}
+              onFotoSubida={cargarMedidores}
+              onResolverMarca={resolverMarca}
+            />
           </MapContainer>
+          )}
         </div>
 
         {/* Panel lateral derecho en ESCRITORIO */}

@@ -82,9 +82,22 @@ export default function CargaKml({ onImportado }) {
                 Selecciona el archivo de la ruta: el .kml de Google My Maps
                 o el Excel (.xlsx) que descarga la analista desde SAP.
               </label>
+              <p style={{ fontSize: '0.75rem', color: '#718096', margin: '0.3rem 0 0' }}>
+                El nombre no importa. Si lo bajaste desde el teléfono y quedó
+                como <code>ruta.kml.xml</code>, sirve igual.
+              </p>
+              {/* El `accept` incluye .xml a propósito, y no es un descuido.
+                  Al descargar un KML de Google My Maps desde el teléfono,
+                  Android lo guarda como `ruta.kml.xml`: la extensión pasa a ser
+                  .xml y el selector de archivos lo deja GRIS, sin explicar por
+                  qué. Sin esto, trabajar desde el teléfono es imposible.
+
+                  Dejar pasar un .xml cualquiera no es un riesgo: el backend ya
+                  no decide por el nombre sino por el contenido, así que un XML
+                  que no sea un KML se rechaza con un mensaje que se entiende. */}
               <input
                 type="file"
-                accept=".kml,.xlsx,.xls,application/vnd.google-earth.kml+xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                accept=".kml,.xml,.xlsx,.xls,application/vnd.google-earth.kml+xml,text/xml,application/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 className="form-control form-control-sm mt-2"
                 onChange={handleArchivo}
                 disabled={cargando}

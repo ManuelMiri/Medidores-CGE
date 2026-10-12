@@ -30,6 +30,38 @@
 }
 
 /* Pin con contador: cuando hay varios medidores en el mismo punto */
+/* ---------------------------------------------- mapa sobre GPU (MapLibre) */
+
+/* Mismo aire que el popup de Leaflet, y sobre todo un TECHO de altura: la
+   ficha de un medidor —con su bloque de marca permanente, los datos y el botón
+   de foto— es más alta que la pantalla de un teléfono, y MapLibre, a
+   diferencia de Leaflet, no mueve el mapa solo para que el popup entre. Sin
+   esto la ficha se corta contra la barra de arriba y no hay forma de llegar a
+   los botones del final. */
+/* El popup, por encima de los controles. MapLibre les pone z-index 2 a los
+   controles y al popup no le pone ninguno, así que los botones de zoom le
+   tapaban el texto de la ficha: se leía "ado del mapeo" en vez de "Estado del
+   mapeo". Que el popup tape los botones mientras está abierto no molesta — se
+   cierra y vuelven. */
+.maplibregl-popup {
+  z-index: 3;
+}
+
+.maplibregl-popup-content {
+  padding: 0.6rem 0.7rem;
+  border-radius: 6px;
+  min-width: 220px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+/* Los controles de zoom van DEBAJO del buscador. En este teléfono el viewport
+   es de 384 px y el buscador ocupa casi todo el ancho de arriba, así que
+   encima de él el botón + queda tapado y no se puede acercar el mapa. */
+.maplibregl-ctrl-top-left {
+  margin-top: 3.1rem;
+}
+
 .pin-grupo {
   position: relative;
   width: 25px;

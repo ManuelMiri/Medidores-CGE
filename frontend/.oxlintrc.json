@@ -1,8 +1,20 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "oxc"],
+  "env": { "browser": true, "es2024": true },
   "rules": {
     "react/rules-of-hooks": "error",
+    "no-undef": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["scripts/**", "**/*.test.js", "**/__fixtures__/**", "vite.config.js"],
+      "env": { "node": true, "browser": false }
+    },
+    {
+      "files": ["public/sw-tiles.js"],
+      "env": { "worker": true, "serviceworker": true }
+    }
+  ]
 }

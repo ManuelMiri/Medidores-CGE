@@ -48,6 +48,56 @@ const fotoSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// Memoria de terreno: "acá ya no hay medidor".
+//
+// Es lo único del mapa que SOBREVIVE al cierre de ciclo. El problema que
+// resuelve es concreto: si un lector confirma que tres puntos son sitio
+// eriazo, hoy esa información se pierde al mes siguiente y el lector nuevo
+// — que puede ser otra persona — vuelve a perder tiempo buscando medidores
+// que ya no existen.
+//
+// Va aparte de `estado` a propósito. `estado` dice si ESTA app tiene el
+// medidor ubicado y documentado, y solo tiene 4 valores: metiendo acá el
+// motivo se perdería la diferencia entre "sitio eriazo", "se lo robaron" y
+// "no tiene empalme", que en terreno no son lo mismo. Al confirmar una marca
+// se pone además `estado: 'perdido'`, que es justo lo que ese valor
+// significa, para que el Resumen y el color del pin queden coherentes.
+//
+// Dos situaciones porque el que ve el medidor y el que decide no son la
+// misma persona: TOES propone (lo reportó el lector en terreno) y un admin o
+// supervisor confirma. Una clave puesta por error no puede dejar un medidor
+// real sin leer para siempre.
+const marcaPermanenteSchema = new mongoose.Schema(
+  {
+    tipo: {
+      type: String,
+      enum: ['sitioEriazo', 'noEncontrado', 'sinEmpalme'],
+      required: true,
+    },
+    // 'rechazada' no es lo mismo que borrar la marca: deja constancia de que
+    // una persona miró el punto y dijo "no, acá sí hay medidor". Sin eso, el
+    // sondeo volvería a proponer lo mismo a los 5 segundos, porque TOES sigue
+    // teniendo esa clave en el ciclo.
+    situacion: {
+      type: String,
+      enum: ['propuesta', 'confirmada', 'rechazada'],
+      default: 'propuesta',
+    },
+    // Clave de TOES que la originó (26, 02…). null si se marcó a mano.
+    claveToes:   { type: String, trim: true, default: null },
+    // Ciclo (fecha ADATSOLL) en que TOES la reportó. Sirve para saber de
+    // cuándo es el dato sin guardar nada más del log.
+    cicloOrigen: { type: String, trim: true, default: null },
+
+    propuestaPor:   { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', default: null },
+    fechaPropuesta: { type: Date, default: Date.now },
+
+    confirmadaPor:     { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', default: null },
+    fechaConfirmacion: { type: Date, default: null },
+  },
+  { _id: false }
+)
+
 const medidorSchema = new mongoose.Schema(
   {
     instalacion: {
@@ -72,6 +122,13 @@ const medidorSchema = new mongoose.Schema(
       type: String,
       enum: ['pendiente', 'localizado', 'perdido', 'revision'],
       default: 'pendiente',
+    },
+    // Ver el comentario de marcaPermanenteSchema. default: undefined por la
+    // misma razón que `ubicacion`: un objeto plano anidado lo auto-rellenaría
+    // Mongoose con sus valores por defecto aunque no se pase nada.
+    marcaPermanente: {
+      type: marcaPermanenteSchema,
+      default: undefined,
     },
     fotos:             { type: [fotoSchema], default: [] },
     observaciones:     { type: String, trim: true, default: null },

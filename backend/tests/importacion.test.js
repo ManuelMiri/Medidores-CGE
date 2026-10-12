@@ -261,3 +261,79 @@ describe('Importación desde Excel de SAP (.xlsx)', () => {
     expect(res.status).toBe(400)
   })
 })
+
+// El formato se decide por el CONTENIDO y no por el nombre, y estos tests son
+// los que lo sostienen. El caso que lo motivó es el de todos los días: al
+// descargar un KML de Google My Maps desde el teléfono, Android lo guarda como
+// `ruta.kml.xml`, y con la extensión como criterio el archivo se rechazaba.
+describe('El nombre del archivo no decide el formato', () => {
+  test('un KML descargado desde el teléfono (.kml.xml) se importa igual', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta.kml.xml')
+
+    expect(res.status).toBe(200)
+    expect(res.body.totalNuevos).toBeGreaterThan(0)
+  })
+
+  test('un KML sin ninguna extensión también', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta')
+
+    expect(res.status).toBe(200)
+    expect(res.body.totalNuevos).toBeGreaterThan(0)
+  })
+
+  test('un Excel con el nombre cambiado se sigue leyendo como Excel', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', excelDePrueba, 'descarga.bin')
+
+    expect(res.status).toBe(200)
+    expect(res.body.totalNuevos).toBeGreaterThan(0)
+  })
+
+  test('un .xml que NO es un KML se rechaza, aunque sea XML válido', async () => {
+    // Mirar el contenido no puede significar aceptar cualquier cosa: un XML
+    // de otra cosa tiene que seguir fallando, y con un mensaje que se entienda.
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', Buffer.from('<?xml version="1.0"?><factura><total>10</total></factura>'), 'ruta.kml')
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/No reconozco el archivo/i)
+  })
+
+  test('un KMZ avisa que hay que exportar como KML, en vez de fallar raro', async () => {
+    // Un KMZ es un ZIP, igual que un XLSX. Sin distinguirlos, terminaria en el
+    // parser de Excel y el admin veria un error que no le dice que hacer.
+    // Se arma un ZIP minimo a mano: cabecera local + el nombre doc.kml.
+    const zip = Buffer.concat([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      Buffer.alloc(26),
+      Buffer.from('doc.kml'),
+    ])
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', zip, 'ruta.kmz')
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/KMZ/i)
+  })
+})

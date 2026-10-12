@@ -1,0 +1,12 @@
+{
+  "appId": "cl.mla.maule",
+  "appName": "MLA Maule",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "loggingBehavior": "none"
+}
