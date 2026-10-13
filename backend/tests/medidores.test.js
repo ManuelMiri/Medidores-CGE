@@ -96,3 +96,56 @@ describe('GET /api/medidores/buscar', () => {
     expect(res.body.medidores).toEqual([])
   })
 })
+
+// La lista de ULs se cachea un minuto. Lo que se prueba es que crear o borrar
+// medidores la invalide: si no, una ruta recién importada no aparecía y una
+// recién eliminada seguía ahí hasta que venciera el TTL.
+describe('GET /api/medidores/uls — caché', () => {
+  const Medidor = require('../models/Medidor')
+  // clearDatabase vacía la base por debajo de la API, así que la caché del
+  // test anterior seguiría viva.
+  beforeEach(() => require('../utils/cache').invalidarUls())
+
+  const uls = async (token) =>
+    (await request(app).get('/api/medidores/uls').set('Authorization', `Bearer ${token}`)).body.uls
+
+  test('una UL creada aparece aunque la lista estuviera en caché', async () => {
+    const { token } = await crearUsuarioYObtenerToken('admin')
+    await Medidor.create({ instalacion: '900000001', unidadDeLectura: 'UL_VIEJA' })
+    expect(await uls(token)).toEqual(['UL_VIEJA'])
+
+    const res = await request(app)
+      .post('/api/medidores')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ instalacion: '900000002', unidadDeLectura: 'UL_NUEVA' })
+    expect(res.status).toBe(201)
+
+    expect(await uls(token)).toEqual(['UL_NUEVA', 'UL_VIEJA'])
+  })
+
+  test('una ruta eliminada desaparece aunque la lista estuviera en caché', async () => {
+    const { token } = await crearUsuarioYObtenerToken('admin')
+    await Medidor.create([
+      { instalacion: '900000003', unidadDeLectura: 'UL_A' },
+      { instalacion: '900000004', unidadDeLectura: 'UL_B' },
+    ])
+    expect(await uls(token)).toEqual(['UL_A', 'UL_B'])
+
+    await request(app).delete('/api/rutas/UL_B').set('Authorization', `Bearer ${token}`)
+
+    expect(await uls(token)).toEqual(['UL_A'])
+  })
+
+  test('al eliminar el último medidor de una UL, la UL desaparece', async () => {
+    const { token } = await crearUsuarioYObtenerToken('admin')
+    await Medidor.create([
+      { instalacion: '900000005', unidadDeLectura: 'UL_A' },
+      { instalacion: '900000006', unidadDeLectura: 'UL_SOLA' },
+    ])
+    expect(await uls(token)).toEqual(['UL_A', 'UL_SOLA'])
+
+    await request(app).delete('/api/medidores/900000006').set('Authorization', `Bearer ${token}`)
+
+    expect(await uls(token)).toEqual(['UL_A'])
+  })
+})

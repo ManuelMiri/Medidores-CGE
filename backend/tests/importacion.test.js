@@ -337,3 +337,28 @@ describe('El nombre del archivo no decide el formato', () => {
     expect(res.body.error).toMatch(/KMZ/i)
   })
 })
+
+describe('Importar invalida la lista de ULs en caché', () => {
+  test('la UL importada aparece al tiro en /api/medidores/uls', async () => {
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+    const uls = async () => (await request(app)
+      .get('/api/medidores/uls')
+      .set('Authorization', `Bearer ${tokenAdmin}`)).body.uls
+
+    // Deja la lista (vacía) en caché antes de importar.
+    expect(await uls()).toEqual([])
+
+    const previewRes = await request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', Buffer.from(kmlDePrueba), 'ruta.kml')
+    await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ medidores: previewRes.body.nuevos })
+
+    const esperadas = (await Medidor.distinct('unidadDeLectura')).filter(Boolean).sort()
+    expect(esperadas.length).toBeGreaterThan(0)
+    expect(await uls()).toEqual(esperadas)
+  })
+})

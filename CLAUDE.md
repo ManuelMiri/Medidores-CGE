@@ -102,7 +102,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 71 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 76 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3
@@ -235,8 +235,14 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   `position={[lat, lng]}` o un `eventHandlers={{...}}` creados en el render hacen que **cada** marcador
   ejecute `setLatLng()` y reenganche sus listeners en cada render. Con 300 pines eso se siente. Lo
   mismo con los callbacks que recibe `CapaMedidores`: van con `useCallback`.
-- **`GET /medidores/uls` tiene caché de 60 s** para admin/supervisor (`utils/cache.js`) y no se
-  invalida al importar ni al eliminar una ruta: durante ese minuto la lista puede venir vieja.
+- **En producción el backend corre en `cluster`** (un worker por núcleo, `index.js`), y cada worker
+  tiene su propia memoria. Cualquier estado en memoria (como `utils/cache.js`) existe una vez por
+  worker: invalidar solo en el que atendió la petición deja a los otros con datos viejos. Por eso
+  `cache.invalidarUls()` avisa a los demás por el proceso principal; lo que se cachee de nuevo tiene
+  que ir por ese mismo camino. En local y en los tests no hay cluster, así que el problema no se ve:
+  `tests/cache.test.js` levanta uno de verdad.
+- **Toda ruta que cree o borre medidores tiene que llamar a `cache.invalidarUls()`**: la lista de ULs
+  (`GET /medidores/uls`) se cachea 60 s y si no, una ruta importada tarda un minuto en aparecer.
 - **La carga de medidores trae hasta 500 por UL** (`limite=500`). Lo que busque solo en lo cargado
   puede no ver todo; por eso el buscador termina preguntando al servidor.
 - **Respuestas opacas en el caché.** Chrome le cobra ~7 MB de cuota a cada una. Cachear solo `200` con
@@ -269,7 +275,6 @@ marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
 Pendiente:
 
 - **Rotar las credenciales de Atlas y Cloudinary**: quedaron expuestas en una sesión anterior.
-- Invalidar la caché de `/medidores/uls` al importar o eliminar una ruta.
 - Sacar Leaflet cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
   producción; en los tests del backend sí).

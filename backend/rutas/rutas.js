@@ -8,6 +8,7 @@ const XLSX = require('xlsx')
 const { proteger, soloRol } = require('../middleware/auth')
 const Medidor = require('../models/Medidor')
 const Usuario = require('../models/Usuario')
+const cache = require('../utils/cache')
 
 // Mismo orden de columnas que trae el Excel real de SAP. Los campos que
 // no guardamos en el modelo (CONTRATISTA, FECHA PLANIFICADA, TARIFA, TIPO
@@ -83,6 +84,8 @@ router.delete('/:ul', proteger, soloRol('admin'), async (req, res) => {
     if (resultado.deletedCount === 0) {
       return res.status(404).json({ error: 'No hay medidores registrados en esa UL' })
     }
+
+    cache.invalidarUls()
 
     await Usuario.updateMany(
       { unidadesLectura: req.params.ul },

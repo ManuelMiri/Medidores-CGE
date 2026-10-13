@@ -9,6 +9,7 @@ const router = express.Router()
 const multer = require('multer')
 const { proteger, soloRol } = require('../middleware/auth')
 const Medidor = require('../models/Medidor')
+const cache = require('../utils/cache')
 const { parsearKml } = require('../utils/kml')
 const { parsearExcelSap } = require('../utils/excelSap')
 
@@ -156,6 +157,7 @@ router.post('/confirmar', proteger, soloRol('admin'), async (req, res) => {
       }))
 
     const creados = aCrear.length > 0 ? await Medidor.insertMany(aCrear) : []
+    if (creados.length > 0) cache.invalidarUls()
 
     res.status(201).json({
       totalCreados: creados.length,

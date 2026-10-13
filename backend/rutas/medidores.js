@@ -102,7 +102,7 @@ router.get('/uls', proteger, async (req, res) => {
       // cachearlo)
       uls = req.usuario.unidadesLectura
     } else {
-      const claveCache = 'uls:todas'
+      const claveCache = cache.CLAVE_ULS
       const cacheado = cache.obtener(claveCache)
 
       if (cacheado) {
@@ -167,6 +167,8 @@ router.post('/', proteger, async (req, res) => {
         fecha:     new Date(),
       }],
     })
+    // Puede ser la primera de una UL nueva.
+    cache.invalidarUls()
 
     res.status(201).json(medidor)
   } catch (err) {
@@ -368,6 +370,8 @@ router.delete('/:instalacion', proteger, soloRol('admin'), async (req, res) => {
   try {
     const medidor = await Medidor.findOneAndDelete({ instalacion: req.params.instalacion })
     if (!medidor) return res.status(404).json({ error: 'Medidor no encontrado' })
+    // Puede haber sido el último de su UL.
+    cache.invalidarUls()
     res.json({ mensaje: 'Medidor eliminado correctamente' })
   } catch (err) {
     res.status(500).json({ error: err.message })

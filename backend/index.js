@@ -47,6 +47,9 @@ if (usarCluster && cluster.isPrimary) {
     cluster.fork()
   }
 
+  // Cada worker tiene su propia caché; las invalidaciones pasan por acá.
+  require('./utils/cache').reenviarInvalidaciones(cluster)
+
   cluster.on('exit', (worker) => {
     console.log(`⚠️ Worker ${worker.process.pid} se detuvo, iniciando uno nuevo`)
     cluster.fork()

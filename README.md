@@ -501,6 +501,8 @@ Dos archivos de entrada, para poder testear sin conexión real a MongoDB ni puer
 
 `GET /api/medidores/uls` calcula los valores distintos de `unidadDeLectura` con un `distinct` sobre toda la colección, caro de repetir en cada llamada. `utils/cache.js` guarda el resultado en memoria con TTL de 60 s.
 
+Toda ruta que crea o borra medidores (crear uno, eliminar uno, confirmar una importación, eliminar una ruta) llama a `cache.invalidarUls()`, porque puede cambiar qué ULs existen. Con el cluster eso no alcanza en un solo proceso: cada worker tiene su propio almacén, así que el que invalida le avisa al proceso principal y este reenvía el aviso a los demás (`reenviarInvalidaciones`). Antes una ruta recién importada podía no aparecer durante un minuto, según qué worker atendiera. `tests/cache.test.js` lo prueba con un cluster real de 3 workers.
+
 El modelo `Medidor` mantiene **un solo índice**: `{ unidadDeLectura: 1 }`, que acelera los filtros por ruta y ese `distinct`. Se quitaron a propósito (commit `9cb382e`) el índice de texto y el `2dsphere`: el de texto no se usaba porque el buscador va por `$regex`, y el `2dsphere` solo lo usaba la ruta `/cercanos`, que el frontend nunca llamaba. Los dos hacían más lentos los inserts al importar rutas de cientos de medidores.
 
 ## Pruebas
