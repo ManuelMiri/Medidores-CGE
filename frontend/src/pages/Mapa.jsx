@@ -128,13 +128,22 @@ function CapturarClick({ onClickMapa, modoAgregar }) {
 }
 
 // Formulario reutilizable — mismo para modal y panel lateral
-function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, guardando, onGuardar, onCerrar, onFotoSubida }) {
+function FormularioMedidor({ campos, setCampos, uls, nuevoPunto, medidorEdit, guardando, onGuardar, onCerrar, onFotoSubida, onMover }) {
   return (
     <>
       {nuevoPunto && (
         <div className="alert alert-success py-1 px-2 mb-2" style={{ fontSize: '0.78rem' }}>
           📍 Lat: {nuevoPunto[0].toFixed(5)}, Lng: {nuevoPunto[1].toFixed(5)}
         </div>
+      )}
+
+      {/* Solo llega `onMover` si el usuario puede mover (admin o supervisor). */}
+      {medidorEdit && onMover && (
+        <button
+          className="btn btn-outline-secondary btn-sm w-100 mb-2"
+          onClick={() => onMover(medidorEdit)}>
+          📍 Cambiar ubicación en el mapa
+        </button>
       )}
 
       {[
@@ -374,6 +383,9 @@ export default function Mapa() {
     setGrupoSeleccionado(idGrupo)
   }, [])
   const [modoAgregar, setModoAgregar]   = useState(false)
+  // El medidor que se está moviendo (admin/supervisor), o null. Mientras hay
+  // uno, tocar el mapa lo lleva ahí en vez de crear un punto nuevo.
+  const [moviendo, setMoviendo]         = useState(null)
   const [nuevoPunto, setNuevoPunto]     = useState(null)
   const [formulario, setFormulario]     = useState(false)
   const [medidorEdit, setMedidorEdit]   = useState(null)
@@ -472,9 +484,9 @@ export default function Mapa() {
   // solo se recalcula el grupo donde está el medidor elegido.
   const vistasBase = useMemo(
     () => grupos.map((g) => vistaDeGrupo(
-      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, null
+      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, null, toes.soloRepaso
     )),
-    [grupos, toes.indice, toes.config, toes.verTomados]
+    [grupos, toes.indice, toes.config, toes.verTomados, toes.soloRepaso]
   )
 
   const vistas = useMemo(() => {
@@ -485,10 +497,11 @@ export default function Mapa() {
     if (i === -1) return vistasBase
     const copia = vistasBase.slice()
     copia[i] = vistaDeGrupo(
-      grupos[i].medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId
+      grupos[i].medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId,
+      toes.soloRepaso
     )
     return copia
-  }, [vistasBase, grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId])
+  }, [vistasBase, grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId, toes.soloRepaso])
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -672,6 +685,50 @@ export default function Mapa() {
     } catch (err) {
       alert(err.response?.data?.error || 'Error al guardar')
     } finally { setGuardando(false) }
+  }
+
+  // Mover un pin. Antes la única salida para un punto mal ubicado por la ruta
+  // importada era borrarlo y crearlo de nuevo, y con eso se iban su historial
+  // y sus fotos. El backend deja la posición anterior en el historial.
+  const puedeMover = usuario.rol === 'admin' || usuario.rol === 'supervisor'
+
+  function empezarAMover(medidor) {
+    cerrarFormulario()
+    setModoAgregar(false)
+    setMoviendo(medidor)
+  }
+
+  async function moverA([lat, lng], precision) {
+    const m = moviendo
+    if (!m) return
+    const extra = precision ? `\n(precisión del GPS: ±${Math.round(precision)} m)` : ''
+    if (!confirm(`¿Mover ${m.instalacion} a este punto?${extra}`)) return
+    try {
+      await api.patch(`/medidores/${m.instalacion}/ubicacion`, { lat, lng })
+      setMoviendo(null)
+      await cargarMedidores()
+      setCentroMapa([lat, lng])
+      seleccionarMedidor(m._id)
+    } catch (err) {
+      alert(err.response?.data?.error || 'No se pudo mover el punto')
+    }
+  }
+
+  // En terreno lo más preciso suele ser pararse junto al medidor: se toma una
+  // sola lectura del GPS, sin dejar el seguimiento prendido.
+  function moverAMiGps() {
+    if (!navigator.geolocation) return alert('Este dispositivo no tiene GPS disponible')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => moverA([pos.coords.latitude, pos.coords.longitude], pos.coords.accuracy),
+      () => alert('No se pudo obtener la ubicación. Revisa que el GPS esté encendido.'),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    )
+  }
+
+  // Tocar el mapa con un modo activo: mover tiene prioridad sobre agregar.
+  function clickEnMapa(coords) {
+    if (moviendo) moverA(coords)
+    else abrirFormulario(null, coords)
   }
 
   // Resolver una marca permanente: confirmarla (el punto queda descartado
@@ -988,7 +1045,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
 
               <button
                 className={`btn btn-sm w-100 mt-2 ${modoAgregar ? 'btn-danger' : 'btn-success'}`}
-                onClick={() => setModoAgregar(!modoAgregar)}>
+                onClick={() => { setMoviendo(null); setModoAgregar(!modoAgregar) }}>
                 {modoAgregar ? '❌ Cancelar' : '📍 Agregar medidor'}
               </button>
               {modoAgregar && (
@@ -1027,7 +1084,28 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             </form>
           </div>
 
-          {modoAgregar && (
+          {moviendo && (
+            <div style={{
+              position: 'absolute', top: '3.5rem', left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000, backgroundColor: '#2c5282',
+              color: 'white', padding: '0.4rem 0.8rem',
+              borderRadius: '12px', fontSize: '0.8rem',
+              textAlign: 'center', maxWidth: 'calc(100% - 32px)',
+            }}>
+              <div>📍 Toca la nueva ubicación de <b>{moviendo.instalacion}</b></div>
+              <div className="d-flex gap-2 justify-content-center mt-1">
+                <button className="btn btn-light btn-sm py-0" onClick={moverAMiGps}>
+                  Usar mi GPS
+                </button>
+                <button className="btn btn-outline-light btn-sm py-0" onClick={() => setMoviendo(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {modoAgregar && !moviendo && (
             <div style={{
               position: 'absolute', top: '3.5rem', left: '50%',
               transform: 'translateX(-50%)',
@@ -1074,8 +1152,8 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               capa={capaActiva}
               onCambioCapa={cambiarCapa}
               centroMapa={centroMapa}
-              modoAgregar={modoAgregar}
-              onClickMapa={(coords) => abrirFormulario(null, coords)}
+              modoAgregar={modoAgregar || !!moviendo}
+              onClickMapa={clickEnMapa}
               nuevoPunto={nuevoPunto}
               miUbicacionActiva={miUbicacionActiva}
               onErrorUbicacion={avisarErrorUbicacion}
@@ -1190,8 +1268,8 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             {centroMapa && <CentrarMapa coords={centroMapa} />}
             <InvalidarTamano />
             <CapturarClick
-              onClickMapa={(coords) => abrirFormulario(null, coords)}
-              modoAgregar={modoAgregar}
+              onClickMapa={clickEnMapa}
+              modoAgregar={modoAgregar || !!moviendo}
             />
             <MiUbicacion
               activo={miUbicacionActiva}
@@ -1249,6 +1327,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               nuevoPunto={nuevoPunto} medidorEdit={medidorEdit}
               guardando={guardando} onGuardar={handleGuardar} onCerrar={cerrarFormulario}
               onFotoSubida={handleFotoSubida}
+              onMover={puedeMover ? empezarAMover : undefined}
             />
           </div>
         )}
@@ -1267,6 +1346,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             nuevoPunto={nuevoPunto} medidorEdit={medidorEdit}
             guardando={guardando} onGuardar={handleGuardar} onCerrar={cerrarFormulario}
             onFotoSubida={handleFotoSubida}
+            onMover={puedeMover ? empezarAMover : undefined}
           />
         </Modal.Body>
       </Modal>

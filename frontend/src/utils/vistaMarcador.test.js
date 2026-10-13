@@ -24,7 +24,7 @@ globalThis.document = {
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-const { vistaDeGrupo, estadoToesDe, iconoColor } = await import('./vistaMarcador.js')
+const { vistaDeGrupo, estadoToesDe, iconoColor, esRepaso } = await import('./vistaMarcador.js')
 const config = (await import('../config/clavesToes.json', { with: { type: 'json' } })).default
 
 // Iconos por estado de mapeo, como los que tiene Mapa.jsx. Lo único que
@@ -256,4 +256,51 @@ test('con varios visibles no hay color: ningún tono representa al grupo', () =>
   const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '101', clave: '26' }), config, iconos, true, null)
   assert.equal(v.visibles.length, 2)
   assert.equal(v.color, null)
+})
+
+// --- Repaso de casas cerradas ----------------------------------------------
+// Al terminar la ruta el lector quiere ver SOLO las casas que quedaron
+// cerradas, para volver a pasar por ellas sin revisar pin por pin.
+
+test('repaso: las variantes de casa cerrada son 01, 08, 09 y 30', () => {
+  for (const c of ['01', '08', '09', '30']) {
+    assert.match(config.claves[c].nombre, /^Casa cerrada/i, `clave ${c}`)
+    assert.ok(esRepaso({ clave: c }, config), `clave ${c}`)
+  }
+  // Ninguna otra clave de la tabla empieza con "Casa cerrada": si CGE agrega
+  // una variante nueva, este test avisa que falta sumarla a clavesRepaso.
+  const cerradas = Object.entries(config.claves)
+    .filter(([, d]) => /^Casa cerrada/i.test(d.nombre)).map(([c]) => c).sort()
+  assert.deepEqual(cerradas, [...config.clavesRepaso].sort())
+})
+
+test('repaso: no cuentan las lecturas, otras claves ni lo no tomado', () => {
+  assert.equal(esRepaso(null, config), false)
+  assert.equal(esRepaso({ clave: null, conLectura: true }, config), false)
+  assert.equal(esRepaso({ clave: '26' }, config), false)
+})
+
+test('repaso: solo quedan las casas cerradas, en firme y con su color', () => {
+  const grupo = [medidor('a', '101'), medidor('b', '102'), medidor('c', '103')]
+  // 101 cerrada, 102 leída, 103 sin visitar
+  const indice = indiceCon({ instalacion: '101', clave: '08' }, { instalacion: '102' })
+  const v = vistaDeGrupo(grupo, indice, config, iconos, false, null, true)
+  assert.deepEqual(v.visibles.map((m) => m._id), ['a'])
+  assert.equal(v.opacidad, 1) // tomada, pero es lo que hay que ir a ver
+  assert.equal(v.color, config.claves['08'].color)
+})
+
+test('repaso: un grupo sin casas cerradas desaparece, aunque falte visitarlo', () => {
+  const grupo = [medidor('a', '101'), medidor('b', '102')]
+  const v = vistaDeGrupo(grupo, indiceCon({ instalacion: '102', clave: '26' }), config, iconos, true, null, true)
+  assert.equal(v.oculto, true)
+})
+
+test('repaso: la marca permanente no se cuela, el seleccionado sí', () => {
+  const conMarca = { ...medidor('a', '101'), marcaPermanente: { tipo: 'sitioEriazo', situacion: 'confirmada' } }
+  const v1 = vistaDeGrupo([conMarca], indiceCon(), config, iconos, false, null, true)
+  assert.equal(v1.oculto, true)
+  // buscar una instalación tiene que mostrarla siempre, o el buscador parece roto
+  const v2 = vistaDeGrupo([medidor('b', '102')], indiceCon(), config, iconos, false, 'b', true)
+  assert.equal(v2.oculto, false)
 })

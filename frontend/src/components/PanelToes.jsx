@@ -3,6 +3,7 @@
 // Sigue el estilo del resto del panel de Mapa.jsx (estilos en línea).
 
 import { useRef, useState } from 'react'
+import { esRepaso } from '../utils/vistaMarcador'
 
 function formatearCiclo(ciclo) {
   if (!ciclo) return null
@@ -25,7 +26,7 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
 
   const {
     porUl, indice, verTomados, setVerTomados, procesando, invalidos, ultimaRevision,
-    nativo, carpeta, vigilando, errorNativo, listo,
+    nativo, carpeta, vigilando, errorNativo, listo, soloRepaso, setSoloRepaso,
   } = toes
 
   async function handleCarpeta() {
@@ -51,6 +52,11 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
   const sinPunto = [...indice.porInstalacion.keys()].filter((i) => !instalacionesMapa.has(i))
 
   const hayAlgo = ulsActivas.some((ul) => porUl[ul]?.ciclo)
+
+  // Misma regla que usa el mapa para mostrarlas, así el número del interruptor
+  // y los pines que quedan no pueden decir cosas distintas.
+  let cerradas = 0
+  for (const t of indice.porInstalacion.values()) if (esRepaso(t, toes.config)) cerradas++
 
   return (
     <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
@@ -200,6 +206,19 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
             />
             <label className="form-check-label" htmlFor="verTomados" style={{ fontSize: '0.78rem' }}>
               Ver tomados (atenuados)
+            </label>
+          </div>
+
+          <div className="form-check form-switch">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id="soloRepaso"
+              checked={soloRepaso}
+              onChange={(e) => setSoloRepaso(e.target.checked)}
+            />
+            <label className="form-check-label" htmlFor="soloRepaso" style={{ fontSize: '0.78rem' }}>
+              Solo casas cerradas ({cerradas})
             </label>
           </div>
 

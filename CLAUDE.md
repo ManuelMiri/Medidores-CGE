@@ -83,7 +83,9 @@ PWA en Vercel ─────────────┘   /api/...            �
 - **Endpoints** (todos bajo `/api`, todos con JWT salvo login):
   - `auth`: `login`, `perfil`, `logout`, y gestión de usuarios (solo admin).
   - `medidores`: `GET /` (por `ul`, `limite`), `GET /buscar?q=&ul=A,B`, `GET /uls`, `GET|PATCH|DELETE
-    /:instalacion`, `POST /`, `POST|PATCH|DELETE /:instalacion/marca`, `POST /:instalacion/fotos`.
+    /:instalacion`, `POST /`, `POST|PATCH|DELETE /:instalacion/marca`, `POST /:instalacion/fotos`,
+    `PATCH /:instalacion/ubicacion` (mover el pin; admin/supervisor, deja la posición vieja en el
+    historial). El `PATCH /:instalacion` general ya **no** acepta `ubicacion`.
   - `importacion`: sube KML/KMZ/Excel de SAP → preview → `POST /confirmar` (admin).
   - `rutas`: `GET /:ul/exportar` (xlsx formato SAP), `DELETE /:ul` (admin).
 - **Variables del backend:** `MONGODB_URI`, `JWT_SECRET`, `CLOUDINARY_CLOUD_NAME`,
@@ -93,7 +95,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 134 tests con node --test (sin dependencias extra)
+npm test              # 140 tests con node --test (1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -102,7 +104,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 76 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 88 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3
@@ -208,6 +210,11 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
 - **MapLibre es el motor por defecto** y Leaflet la red de seguridad, que se cambia desde el pie del
   panel lateral (`localStorage.motorMapa = 'leaflet'`). Que esté en la interfaz es el punto: una
   salida de emergencia que necesita un PC con `adb` no le sirve a un lector en terreno.
+- **"Solo casas cerradas"** (panel TOES) deja en el mapa solo lo tomado con una clave de
+  `clavesRepaso` (01, 08, 09, 30), en firme y sin marcas permanentes, para el repaso al final de la
+  ruta. **No se recuerda** entre sesiones a propósito: prendido al día siguiente, el mapa saldría vacío.
+- **Mover un pin** es desde "✏️ Editar" → "Cambiar ubicación en el mapa" (tocar el mapa o "Usar mi
+  GPS"). Reemplaza a borrar y recrear, que perdía historial y fotos.
 
 ## Trampas que ya costaron tiempo
 
@@ -278,9 +285,11 @@ Pendiente:
 - Sacar Leaflet cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
   producción; en los tests del backend sí).
-- **"Sin empalme" desde TOES.** Es un submenú de la clave 05, así que `METERREADINGNOTE` trae `05` y el
-  detalle tiene que estar en otro campo del bloque (candidatos: `ZZABLHINW2`, `ZZABLHINW3`, `NOTA_APK`,
-  `RESPUESTA`). Hasta confirmarlo con un log real, esa marca solo se pone a mano desde el popup.
+- **Submenú de la clave 05 ("Sin empalme", "Mica quemada"…).** Revisados los 55 logs del teléfono
+  (2026-10-13): los únicos bloques con `COD_ESTADO_MED` distinto de `null` son los tres con clave 05
+  (valores `"4"` y `"6"`), así que el submenú va ahí. Falta saber qué código es cada opción: el sábado
+  10-10 hubo un 05 con `"6"` (log de las 09:13) y otro con `"4"` (10:20); uno es la "Mica quemada".
+  Con la tabla de códigos, "sin empalme" puede pasar a proponerse desde TOES; hasta entonces, a mano.
 - Firmar el APK para release.
 - **Tiles vectoriales propios** (PMTiles de la Región del Maule). Quitaría la dependencia de OSM y
   Esri, que pueden cortar el acceso — ya pasó con CARTO.

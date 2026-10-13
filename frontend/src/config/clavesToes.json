@@ -31,6 +31,14 @@
     "del log queda ese submenu, sinEmpalme solo se marca a mano desde la app."
   ],
 
+  "_comentarioRepaso": [
+    "Claves que muestra el interruptor 'Solo casas cerradas' del panel TOES.",
+    "Al terminar la ruta, el lector vuelve a pasar solo por las que no pudo",
+    "leer porque la casa estaba cerrada, en cualquiera de sus variantes."
+  ],
+
+  "clavesRepaso": ["01", "08", "09", "30"],
+
   "marcasPorClave": {
     "26": "sitioEriazo",
     "02": "noEncontrado"

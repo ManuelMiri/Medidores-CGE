@@ -45,6 +45,15 @@ export function estadoToesDe(medidor, indice) {
   )
 }
 
+/**
+ * Si un servicio tomado quedó como casa cerrada (cualquier variante de
+ * `clavesRepaso`). Una lectura posterior pisa la clave en el estado de TOES,
+ * así que una casa que se repasó y se leyó deja de contar sola.
+ */
+export function esRepaso(toes, config) {
+  return Boolean(toes?.clave) && (config.clavesRepaso ?? []).includes(toes.clave)
+}
+
 /** La marca permanente del medidor tal cual está guardada, o null. */
 export const marcaDe = (medidor) => medidor.marcaPermanente ?? null
 
@@ -70,14 +79,23 @@ export const marcaActiva = (medidor) => {
  * @param iconos        los L.Icon por estado de mapeo que ya tiene el mapa
  * @param verTomados    si está activo, los tomados se muestran atenuados
  * @param seleccionadoId medidor elegido a propósito (tocado o buscado)
+ * @param soloRepaso    si está activo, solo se ven las casas cerradas
  */
-export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccionadoId) {
+export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccionadoId, soloRepaso = false) {
   const toesPorId = new Map()
   const visibles = []
 
   for (const m of grupo) {
     const toes = estadoToesDe(m, indice)
     if (toes) toesPorId.set(m._id, toes)
+    // El repaso deja el mapa con UNA sola pregunta: dónde quedó una casa
+    // cerrada. Por eso manda sobre todo lo demás, incluso sobre la marca
+    // permanente y sobre lo que falta visitar: si se colaran, el lector
+    // tendría que volver a mirar pin por pin, que es lo que el modo evita.
+    if (soloRepaso) {
+      if (esRepaso(toes, config) || m._id === seleccionadoId) visibles.push(m)
+      continue
+    }
     // Un servicio ya tomado se oculta, salvo que "Ver tomados" esté activo o
     // que el usuario lo haya elegido a propósito. Esa segunda excepción
     // importa: si no estuviera, buscar una instalación que TOES ya tomó no
@@ -125,7 +143,9 @@ export function vistaDeGrupo(grupo, indice, config, iconos, verTomados, seleccio
 
   // Un punto ya decidido se ve en firme; uno solo propuesto, algo más suave,
   // para que se note que todavía le falta el visto bueno de un supervisor.
-  let opacidad = todoTomado ? 0.35 : 1
+  // En el repaso todo lo visible está tomado, pero es justo lo que hay que
+  // ir a ver: atenuarlo lo escondería.
+  let opacidad = todoTomado && !soloRepaso ? 0.35 : 1
   if (marca) opacidad = marca.situacion === 'confirmada' ? 1 : 0.75
 
   return {

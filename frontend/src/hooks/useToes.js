@@ -50,6 +50,11 @@ export function useToes(ulsActivas = []) {
     () => localStorage.getItem(CLAVE_VER_TOMADOS) === 'si'
   )
 
+  // Repaso de casas cerradas. A propósito NO se recuerda entre sesiones, a
+  // diferencia de verTomados: si quedara prendido, al día siguiente el lector
+  // abriría una ruta nueva y vería el mapa vacío sin saber por qué.
+  const [soloRepaso, setSoloRepaso] = useState(false)
+
   const nativo = hayPluginNativo()
 
   /**
@@ -347,6 +352,8 @@ export function useToes(ulsActivas = []) {
     procesando,
     verTomados,
     setVerTomados,
+    soloRepaso,
+    setSoloRepaso,
     procesarArchivos,
     procesarTrozo,
     nuevoCiclo,
