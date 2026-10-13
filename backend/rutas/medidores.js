@@ -22,7 +22,15 @@ router.get('/', proteger, async (req, res) => {
     if (estado) filtro.estado = estado
 
     // Filtro por UL
-    if (ul) {
+    if (ul && req.usuario.rol === 'lector') {
+      // Antes `?ul=` pasaba directo al filtro y un lector podía leer cualquier
+      // ruta con solo nombrarla. Una ajena devuelve lista vacía y no 403: la
+      // app pide todas las ULs marcadas con un Promise.all, y una UL que le
+      // quitaron (pero que sigue guardada en el teléfono) tumbaría la carga
+      // de las demás.
+      const propias = req.usuario.unidadesLectura || []
+      filtro.unidadDeLectura = { $in: propias.includes(ul) ? [ul] : [] }
+    } else if (ul) {
       filtro.unidadDeLectura = ul
     } else if (req.usuario.rol === 'lector') {
       // Lector solo ve sus ULs asignadas

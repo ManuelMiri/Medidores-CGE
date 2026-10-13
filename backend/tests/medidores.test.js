@@ -36,6 +36,44 @@ describe('GET /api/medidores', () => {
     // directo: { total, pagina, paginas, medidores: [...] }
     expect(Array.isArray(res.body.medidores)).toBe(true)
   })
+
+  describe('un lector y el parámetro ?ul=', () => {
+    const Medidor = require('../models/Medidor')
+    const punto = { type: 'Point', coordinates: [-71.6, -35.5] }
+    const listar = (token, ul) =>
+      request(app).get(`/api/medidores?ul=${ul}`).set('Authorization', `Bearer ${token}`)
+
+    beforeEach(async () => {
+      await Medidor.create([
+        { instalacion: '1', unidadDeLectura: 'PROPIA', ubicacion: punto },
+        { instalacion: '2', unidadDeLectura: 'AJENA', ubicacion: punto },
+      ])
+    })
+
+    test('ve su propia UL', async () => {
+      const { token } = await crearUsuarioYObtenerToken('lector', { unidadesLectura: ['PROPIA'] })
+      const res = await listar(token, 'PROPIA')
+      expect(res.status).toBe(200)
+      expect(res.body.medidores.map((m) => m.instalacion)).toEqual(['1'])
+    })
+
+    test('no puede leer una UL ajena con solo nombrarla', async () => {
+      // Antes `?ul=` iba directo al filtro y devolvía la ruta entera.
+      const { token } = await crearUsuarioYObtenerToken('lector', { unidadesLectura: ['PROPIA'] })
+      const res = await listar(token, 'AJENA')
+      // Vacía y no 403: la app pide todas las ULs marcadas a la vez y un
+      // error en una tumbaría la carga de las demás.
+      expect(res.status).toBe(200)
+      expect(res.body.medidores).toEqual([])
+      expect(res.body.total).toBe(0)
+    })
+
+    test('un admin sigue viendo cualquier UL', async () => {
+      const { token } = await crearUsuarioYObtenerToken('admin')
+      const res = await listar(token, 'AJENA')
+      expect(res.body.medidores.map((m) => m.instalacion)).toEqual(['2'])
+    })
+  })
 })
 
 describe('Autorización por rol en DELETE /api/medidores/:id', () => {
