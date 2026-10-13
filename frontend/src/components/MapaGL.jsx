@@ -175,7 +175,7 @@ export default function MapaGL({
   onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida, onResolverMarca,
   capa, onCambioCapa,
   centroMapa, modoAgregar, onClickMapa, nuevoPunto,
-  miUbicacionActiva, onErrorUbicacion,
+  miUbicacionActiva, onErrorUbicacion, pedidoCentrar,
 }) {
   const contenedor = useRef(null)
   const mapaRef = useRef(null)
@@ -501,7 +501,7 @@ export default function MapaGL({
   }, [listo])
 
   // --------------------------------------------------------- mi ubicación
-  useMiUbicacionGL(listo ? mapaRef.current : null, miUbicacionActiva, onErrorUbicacion)
+  useMiUbicacionGL(listo ? mapaRef.current : null, miUbicacionActiva, onErrorUbicacion, pedidoCentrar)
 
   // ------------------------------------------------------------- medición
   useEffect(() => {

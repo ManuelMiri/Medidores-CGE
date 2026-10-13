@@ -353,6 +353,10 @@ export default function Mapa() {
   // tocar nada) y abierta la primera vez, que es cuando hay que elegir.
   const [listaUlsAbierta, setListaUlsAbierta] = useState(ulsIniciales.length === 0)
   const [miUbicacionActiva, setMiUbicacionActiva] = useState(false)
+  // Contador del botón "centrar en mí": cada toque lo sube y el motor que esté
+  // montado centra en la posición. Un número y no un booleano para que tocarlo
+  // dos veces seguidas centre las dos veces.
+  const [pedidoCentrar, setPedidoCentrar] = useState(0)
   const [centroMapa, setCentroMapa]     = useState(null)
   // _id del medidor seleccionado (tocado o encontrado con el buscador),
   // para pintarlo dorado hasta que toques o busques otro
@@ -1084,6 +1088,27 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             </form>
           </div>
 
+          {/* Centrar en mí. Va fuera de los motores para que sea el mismo
+              botón en los dos; si el punto azul está apagado lo prende, y la
+              primera lectura del GPS centra sola. */}
+          <button
+            type="button"
+            title="Centrar en mi ubicación"
+            aria-label="Centrar en mi ubicación"
+            onClick={() => {
+              if (!miUbicacionActiva) setMiUbicacionActiva(true)
+              setPedidoCentrar((n) => n + 1)
+            }}
+            style={{
+              position: 'absolute', right: '0.75rem', bottom: '4.5rem', zIndex: 1000,
+              width: '48px', height: '48px', borderRadius: '50%',
+              border: 'none', backgroundColor: 'white', fontSize: '1.4rem',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+              color: miUbicacionActiva ? '#1a73e8' : '#4a5568',
+            }}>
+            ◎
+          </button>
+
           {moviendo && (
             <div style={{
               position: 'absolute', top: '3.5rem', left: '50%',
@@ -1157,6 +1182,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               nuevoPunto={nuevoPunto}
               miUbicacionActiva={miUbicacionActiva}
               onErrorUbicacion={avisarErrorUbicacion}
+              pedidoCentrar={pedidoCentrar}
             />
           ) : (
           <MapContainer
@@ -1278,6 +1304,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               // prendido, para no obligar a volver a tocar el botón cada vez
               // que el GPS se cae bajo unos árboles.
               onError={(msg, fatal) => { alert(msg); if (fatal) setMiUbicacionActiva(false) }}
+              pedidoCentrar={pedidoCentrar}
             />
             {nuevoPunto && (
               <Marker position={nuevoPunto} icon={iconos.nuevo}>

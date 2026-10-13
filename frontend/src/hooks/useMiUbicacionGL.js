@@ -99,7 +99,8 @@ function circuloGeoJson(lat, lng, metros) {
   }
 }
 
-export function useMiUbicacionGL(mapa, activo, onError) {
+export function useMiUbicacionGL(mapa, activo, onError, pedidoCentrar = 0) {
+  const ultimaRef = useRef(null) // [lng, lat] de la última lectura, para "centrar"
   const marcadorRef = useRef(null)
   const flechaRef = useRef(null)
   const rumboRef = useRef(null)
@@ -156,6 +157,7 @@ export function useMiUbicacionGL(mapa, activo, onError) {
       (pos) => {
         yaAvisoRef.current = false // volvió a haber señal
         const { latitude: lat, longitude: lng, accuracy } = pos.coords
+        ultimaRef.current = [lng, lat]
 
         if (!marcadorRef.current) {
           const el = crearElemento()
@@ -201,6 +203,7 @@ export function useMiUbicacionGL(mapa, activo, onError) {
 
     return () => {
       navigator.geolocation.clearWatch(watchId)
+      ultimaRef.current = null // apagado, la última posición ya no es "dónde estoy"
       marcadorRef.current?.remove()
       marcadorRef.current = null
       flechaRef.current = null
@@ -210,6 +213,15 @@ export function useMiUbicacionGL(mapa, activo, onError) {
       if (mapa.getSource?.(FUENTE_PRECISION)) mapa.removeSource(FUENTE_PRECISION)
     }
   }, [mapa, activo, onError, aplicarRumbo])
+
+  // Botón "centrar en mí": cada toque sube el contador. Con posición, centra
+  // ya; sin ella (el GPS recién se prendió), la próxima lectura centra sola.
+  useEffect(() => {
+    if (!pedidoCentrar || !mapa) return
+    const p = ultimaRef.current
+    if (p) mapa.easeTo({ center: p, zoom: Math.max(mapa.getZoom(), 17), duration: 400 })
+    else yaCentroRef.current = false
+  }, [pedidoCentrar, mapa])
 
   // Brújula — solo para orientar la flecha, no el mapa. El mapa se queda al
   // norte: rotarlo rompería la referencia del lector y el clic para agregar.

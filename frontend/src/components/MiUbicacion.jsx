@@ -93,9 +93,14 @@ function diferenciaAngular(a, b) {
   return ((a - b + 540) % 360) - 180
 }
 
-export default function MiUbicacion({ activo, onError }) {
+export default function MiUbicacion({ activo, onError, pedidoCentrar = 0 }) {
   const map = useMap()
   const [posicion, setPosicion] = useState(null) // [lat, lng]
+  // La misma posición en un ref, para el botón "centrar": si `posicion`
+  // estuviera en las dependencias de ese efecto, centraría en cada lectura
+  // del GPS y no te dejaría mirar el resto del mapa.
+  const posicionRef = useRef(null)
+  posicionRef.current = activo ? posicion : null
   const [precision, setPrecision] = useState(null) // metros
   const marcadorRef = useRef(null)
   const circuloRef = useRef(null)
@@ -251,6 +256,15 @@ export default function MiUbicacion({ activo, onError }) {
       yaCentroRef.current = true
     }
   }, [activo, posicion, precision, map])
+
+  // Botón "centrar en mí": cada toque sube el contador. Con posición, centra
+  // ya; sin ella (el GPS recién se prendió), la próxima lectura centra sola.
+  useEffect(() => {
+    if (!pedidoCentrar) return
+    const p = posicionRef.current
+    if (p) map.setView(p, Math.max(map.getZoom(), 17))
+    else yaCentroRef.current = false
+  }, [pedidoCentrar, map])
 
   return null
 }
