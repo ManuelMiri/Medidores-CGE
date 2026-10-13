@@ -13,6 +13,26 @@ export default function PreviewImportacion({ resumen, confirmando, onConfirmar, 
         <strong style={{ color: '#276749' }}>{resumen.totalNuevos}</strong> son nuevos.
       </p>
 
+      {/* El archivo de origen puede traer la misma instalación más de una vez.
+          Se importa una sola; si la repetida traía otro medidor, ese queda
+          afuera y hay que decirlo, porque es un dato que se pierde. */}
+      {resumen.repetidos?.length > 0 && (
+        <div className="alert alert-warning py-1 px-2" style={{ fontSize: '0.78rem' }}>
+          El archivo traía {resumen.totalFilas} filas con instalaciones repetidas; se importa
+          una por instalación.
+          {resumen.repetidos.some((r) => r.otrosMedidores.length > 0) && (
+            <div className="mt-1" style={{ color: '#9b2c2c' }}>
+              Instalaciones con más de un medidor (solo se guarda el primero):
+              {resumen.repetidos.filter((r) => r.otrosMedidores.length > 0).map((r) => (
+                <div key={r.instalacion}>
+                  <strong>{r.instalacion}</strong>: también serie {r.otrosMedidores.join(', ')}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {resumen.nuevos.length === 0 ? (
         <p className="text-muted" style={{ fontSize: '0.85rem' }}>
           No hay medidores nuevos que importar en esta ruta.

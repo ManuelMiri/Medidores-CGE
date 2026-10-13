@@ -389,3 +389,69 @@ describe('Importar invalida la lista de ULs en caché', () => {
     expect(await uls()).toEqual(esperadas)
   })
 })
+
+describe('Instalaciones repetidas dentro del archivo', () => {
+  // Caso real G3509004: el archivo traía una instalación 4 veces, otra 2 veces
+  // copiada igual y otra 2 veces con dos medidores distintos. El confirmar
+  // cortaba con E11000 y dejaba la ruta a medias.
+  const fila = (instalacion, serie) => ({
+    ZONA: 'MAULE', ESTABLECIMIENTO: 'CGE: EMPLAZ TALCA', PROCESO: '09',
+    INSTALACION: instalacion, 'UNIDAD DE LECTURA': 'G0000001',
+    DIRECCION: 'CAMINO S/N', 'NUMERO DE POSTE': '1',
+    'NUMERO DE SERIE': serie, MARCA: '',
+    COORDENADAS: '-35.44, -71.67',
+  })
+  const excelConRepetidos = generarExcelDePrueba([
+    fila('G0000001', 'S1'),
+    fila('100855065', 'S2'), fila('100855065', 'S2'), fila('100855065', 'S2'), fila('100855065', 'S2'),
+    fila('G0000002', 'S3'), fila('G0000002', 'OTRO'),
+  ])
+
+  async function preview(token) {
+    return request(app)
+      .post('/api/importacion/preview')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('archivo', excelConRepetidos, 'ruta.xlsx')
+  }
+
+  test('el preview deja una fila por instalación y avisa cuáles venían repetidas', async () => {
+    const res = await preview(await crearUsuarioYLoguear('admin'))
+
+    expect(res.status).toBe(200)
+    expect(res.body.totalFilas).toBe(7)
+    expect(res.body.totalEnKml).toBe(3)
+    expect(res.body.nuevos.map((m) => m.instalacion).sort()).toEqual(['100855065', 'G0000001', 'G0000002'])
+    const porInst = Object.fromEntries(res.body.repetidos.map((r) => [r.instalacion, r]))
+    expect(porInst['100855065']).toEqual({ instalacion: '100855065', veces: 4, otrosMedidores: [] })
+    // dos medidores en una instalación: el segundo queda afuera y se informa
+    expect(porInst['G0000002'].otrosMedidores).toEqual(['OTRO'])
+  })
+
+  test('confirmar con la lista del preview crea todo sin E11000', async () => {
+    const token = await crearUsuarioYLoguear('admin')
+    const { body } = await preview(token)
+
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ medidores: body.nuevos })
+
+    expect(res.status).toBe(201)
+    expect(res.body.totalCreados).toBe(3)
+    expect(await Medidor.countDocuments()).toBe(3)
+  })
+
+  test('confirmar también aguanta repetidos que mande un APK viejo', async () => {
+    const token = await crearUsuarioYLoguear('admin')
+    const m = { instalacion: '100855065', unidadDeLectura: 'G0000001' }
+
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ medidores: [m, m, m, { instalacion: 'G0000001', unidadDeLectura: 'G0000001' }] })
+
+    expect(res.status).toBe(201)
+    expect(res.body.totalCreados).toBe(2)
+    expect(res.body.totalOmitidos).toBe(2)
+  })
+})

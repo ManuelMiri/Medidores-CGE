@@ -57,6 +57,39 @@ function formatoDe(buffer) {
   return null
 }
 
+/**
+ * Deja una sola fila por instalación, la primera, y cuenta las que sobran.
+ *
+ * La instalación es única en la base, pero el archivo de origen puede traerla
+ * repetida. Caso real (G3509004, oct-2026): 231 puntos y 226 instalaciones,
+ * una de ellas copiada 4 veces. insertMany cortó en el primer repetido con un
+ * E11000 que el admin no tenía cómo entender, y dejó la ruta a medias.
+ *
+ * Las copias exactas se descartan sin más. Si la repetida trae OTRO número de
+ * serie son dos medidores en la misma instalación, y el modelo guarda uno: se
+ * informa aparte para que quien importa sepa qué quedó afuera.
+ */
+function sinRepetidos(medidores) {
+  const porInstalacion = new Map()
+  const repetidos = new Map()
+  for (const m of medidores) {
+    const primero = porInstalacion.get(m.instalacion)
+    if (!primero) {
+      porInstalacion.set(m.instalacion, m)
+      continue
+    }
+    const r = repetidos.get(m.instalacion) ||
+      { instalacion: m.instalacion, veces: 1, otrosMedidores: [] }
+    r.veces++
+    if (m.numeroDeSerie && m.numeroDeSerie !== primero.numeroDeSerie &&
+        !r.otrosMedidores.includes(m.numeroDeSerie)) {
+      r.otrosMedidores.push(m.numeroDeSerie)
+    }
+    repetidos.set(m.instalacion, r)
+  }
+  return { unicos: [...porInstalacion.values()], repetidos: [...repetidos.values()] }
+}
+
 // Los dos parsers devuelven exactamente la misma forma de datos, así que el
 // resto de la ruta (comparar contra la base, armar el preview, confirmar) no
 // necesita saber de dónde vino el archivo.
@@ -97,7 +130,8 @@ router.post(
         return res.status(400).json({ error: 'Debes adjuntar un archivo (.kml, .xlsx o .xls)' })
       }
 
-      const medidoresDelArchivo = parsearArchivoRuta(req.file)
+      const leidos = parsearArchivoRuta(req.file)
+      const { unicos: medidoresDelArchivo, repetidos } = sinRepetidos(leidos)
 
       if (medidoresDelArchivo.length === 0) {
         return res.status(400).json({ error: 'El archivo no contiene medidores válidos' })
@@ -114,6 +148,9 @@ router.post(
       )
 
       res.json({
+        // Campos nuevos opcionales: un APK viejo los ignora y sigue andando.
+        totalFilas: leidos.length,
+        repetidos,
         totalEnKml: medidoresDelArchivo.length,
         totalExistentes: instalacionesExistentes.size,
         totalNuevos: nuevos.length,
@@ -137,14 +174,16 @@ router.post('/confirmar', proteger, soloRol('admin'), async (req, res) => {
       return res.status(400).json({ error: 'No hay medidores para importar' })
     }
 
-    const instalaciones = medidores.map((m) => m.instalacion)
+    // Un APK viejo puede mandar la lista del preview anterior, con repetidos.
+    const { unicos } = sinRepetidos(medidores.filter((m) => m && m.instalacion))
+    const instalaciones = unicos.map((m) => m.instalacion)
     const yaExisten = await Medidor.find({
       instalacion: { $in: instalaciones },
     }).select('instalacion')
     const instalacionesExistentes = new Set(yaExisten.map((m) => m.instalacion))
 
-    const aCrear = medidores
-      .filter((m) => m.instalacion && !instalacionesExistentes.has(m.instalacion))
+    const aCrear = unicos
+      .filter((m) => !instalacionesExistentes.has(m.instalacion))
       .map((m) => ({
         ...m,
         historial: [
