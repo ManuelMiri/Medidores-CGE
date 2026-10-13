@@ -1109,6 +1109,28 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             ◎
           </button>
 
+          {/* Aviso del repaso, sobre el mapa y no solo en el panel. El
+              interruptor vive en el bloque de TOES, que se esconde cuando
+              ninguna UL marcada tiene lecturas: pasó en terreno que quedó
+              prendido, se marcó una ruta recién importada (sin nada en TOES)
+              y el mapa salió vacío, sin forma de ver por qué ni de apagarlo. */}
+          {toes.soloRepaso && !moviendo && !modoAgregar && (
+            <div style={{
+              position: 'absolute', top: '3.5rem', left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000, backgroundColor: '#c05621',
+              color: 'white', padding: '0.3rem 0.4rem 0.3rem 0.8rem',
+              borderRadius: '20px', fontSize: '0.8rem', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+            }}>
+              Solo casas cerradas
+              <button className="btn btn-light btn-sm py-0"
+                onClick={() => toes.setSoloRepaso(false)}>
+                Ver todo
+              </button>
+            </div>
+          )}
+
           {moviendo && (
             <div style={{
               position: 'absolute', top: '3.5rem', left: '50%',
