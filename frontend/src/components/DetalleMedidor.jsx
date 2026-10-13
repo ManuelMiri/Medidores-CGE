@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import CapturaFoto from './CapturaFoto'
 import { marcaDe, textoToes } from '../utils/vistaMarcador'
+import { urlNavegacion } from '../utils/navegacion'
 
 // Botón ✕ propio del popup (el del motor se esconde en escritorio, porque ahí
 // el popup sale corrido a la derecha del pin y el ✕ original queda flotando en
@@ -178,6 +179,7 @@ export function DetalleMedidor({
   onCerrar, onEditar, onEliminar, onFotoSubida, onResolverMarca,
 }) {
   const decide = rolUsuario === 'admin' || rolUsuario === 'supervisor'
+  const urlIr = urlNavegacion(medidor)
 
   return (
     <div>
@@ -213,6 +215,10 @@ export function DetalleMedidor({
       <div className="d-flex gap-1 mt-2">
         <button className="btn btn-primary btn-sm"
           onClick={() => onEditar(medidor)}>✏️ Editar</button>
+        {urlIr && (
+          <a className="btn btn-success btn-sm" href={urlIr}
+            target="_blank" rel="noreferrer">🚗 Ir</a>
+        )}
         {rolUsuario === 'admin' && (
           <button className="btn btn-danger btn-sm"
             onClick={() => onEliminar(medidor.instalacion)}>🗑️</button>
