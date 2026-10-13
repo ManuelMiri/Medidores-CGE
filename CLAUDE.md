@@ -79,7 +79,13 @@ PWA en Vercel ─────────────┘   /api/...            �
 - **Modelo `Medidor`** (`backend/models/Medidor.js`): `instalacion` (única, es la clave de las rutas
   `/:instalacion`), `unidadDeLectura` (UL = ruta), `ubicacion` GeoJSON `[lng, lat]`, `estado`
   (`pendiente | localizado | perdido | revision`), `marcaPermanente` (opcional:
-  `tipo` + `situacion` propuesta/confirmada/rechazada), `fotos`, `historial`.
+  `tipo` + `situacion` propuesta/confirmada/rechazada), `medidorLupa` (opcional: `numeroDeSerie` +
+  `marca`), `fotos`, `historial`.
+  - **Medidor lupa:** algunos servicios tienen un segundo medidor en el poste, para comparar con el
+    de la casa y detectar hurto o falla. En el archivo de la ruta viene como otra fila con la MISMA
+    instalación y otra serie. Se guarda en `medidorLupa`; la coordenada es la de la casa. La
+    importación puede agregarle el lupa a un existente que no lo tenga, nunca pisar uno guardado.
+  - Las instalaciones son texto: numéricas o con letra (`E714171252`, `G3534036`).
 - **Endpoints** (todos bajo `/api`, todos con JWT salvo login):
   - `auth`: `login`, `perfil`, `logout`, y gestión de usuarios (solo admin).
   - `medidores`: `GET /` (por `ul`, `limite`), `GET /buscar?q=&ul=A,B`, `GET /uls`, `GET|PATCH|DELETE
@@ -104,7 +110,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 95 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 99 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3

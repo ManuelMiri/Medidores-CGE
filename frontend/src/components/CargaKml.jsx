@@ -65,7 +65,10 @@ export default function CargaKml({ onImportado }) {
     setConfirmando(true)
     setError(null)
     try {
-      await api.post('/importacion/confirmar', { medidores: resumen.nuevos })
+      await api.post('/importacion/confirmar', {
+        medidores: resumen.nuevos,
+        lupas: resumen.lupasNuevas ?? [], // un backend viejo lo ignora
+      })
       cerrar()
       onImportado?.() // el padre recarga medidores (y ULs, por si aparece una nueva)
     } catch (err) {

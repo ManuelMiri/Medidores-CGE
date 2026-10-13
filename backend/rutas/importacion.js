@@ -66,8 +66,10 @@ function formatoDe(buffer) {
  * E11000 que el admin no tenía cómo entender, y dejó la ruta a medias.
  *
  * Las copias exactas se descartan sin más. Si la repetida trae OTRO número de
- * serie son dos medidores en la misma instalación, y el modelo guarda uno: se
- * informa aparte para que quien importa sepa qué quedó afuera.
+ * serie es el medidor lupa del servicio (el del poste, para comparar con el
+ * de la casa): se guarda en `medidorLupa` del primero, con la coordenada de la
+ * casa, que es la que importa. Si hubiera más de un medidor distinto, el resto
+ * queda en `otrosMedidores` para que quien importa lo vea.
  */
 function sinRepetidos(medidores) {
   const porInstalacion = new Map()
@@ -75,14 +77,19 @@ function sinRepetidos(medidores) {
   for (const m of medidores) {
     const primero = porInstalacion.get(m.instalacion)
     if (!primero) {
-      porInstalacion.set(m.instalacion, m)
+      // Copia: el lupa se le agrega a este objeto y no hay que tocar el original.
+      porInstalacion.set(m.instalacion, { ...m })
       continue
     }
     const r = repetidos.get(m.instalacion) ||
-      { instalacion: m.instalacion, veces: 1, otrosMedidores: [] }
+      { instalacion: m.instalacion, veces: 1, lupa: null, otrosMedidores: [] }
     r.veces++
-    if (m.numeroDeSerie && m.numeroDeSerie !== primero.numeroDeSerie &&
-        !r.otrosMedidores.includes(m.numeroDeSerie)) {
+    const otraSerie = m.numeroDeSerie && m.numeroDeSerie !== primero.numeroDeSerie
+    if (otraSerie && !primero.medidorLupa) {
+      primero.medidorLupa = { numeroDeSerie: m.numeroDeSerie, marca: m.marca ?? null }
+      r.lupa = m.numeroDeSerie
+    } else if (otraSerie && m.numeroDeSerie !== primero.medidorLupa.numeroDeSerie &&
+               !r.otrosMedidores.includes(m.numeroDeSerie)) {
       r.otrosMedidores.push(m.numeroDeSerie)
     }
     repetidos.set(m.instalacion, r)
@@ -140,17 +147,26 @@ router.post(
       const instalaciones = medidoresDelArchivo.map((m) => m.instalacion)
       const existentes = await Medidor.find({
         instalacion: { $in: instalaciones },
-      }).select('instalacion')
+      }).select('instalacion medidorLupa')
       const instalacionesExistentes = new Set(existentes.map((m) => m.instalacion))
 
       const nuevos = medidoresDelArchivo.filter(
         (m) => !instalacionesExistentes.has(m.instalacion)
       )
 
+      // Un existente nunca se sobreescribe, pero un lupa que le falta se le
+      // puede AGREGAR: no pisa nada. Pasó con G3558832, creado en un import
+      // que cortó a medias antes de que se guardaran los lupas.
+      const sinLupa = new Set(existentes.filter((m) => !m.medidorLupa?.numeroDeSerie).map((m) => m.instalacion))
+      const lupasNuevas = medidoresDelArchivo
+        .filter((m) => m.medidorLupa && sinLupa.has(m.instalacion))
+        .map((m) => ({ instalacion: m.instalacion, medidorLupa: m.medidorLupa }))
+
       res.json({
         // Campos nuevos opcionales: un APK viejo los ignora y sigue andando.
         totalFilas: leidos.length,
         repetidos,
+        lupasNuevas,
         totalEnKml: medidoresDelArchivo.length,
         totalExistentes: instalacionesExistentes.size,
         totalNuevos: nuevos.length,
@@ -168,9 +184,12 @@ router.post(
 // entre el preview y la confirmación), lo salta en vez de fallar todo.
 router.post('/confirmar', proteger, soloRol('admin'), async (req, res) => {
   try {
-    const { medidores } = req.body
+    const medidores = Array.isArray(req.body.medidores) ? req.body.medidores : []
+    // `lupas` es opcional: solo lo manda la app nueva. Un APK viejo manda
+    // `medidores` como siempre.
+    const lupas = Array.isArray(req.body.lupas) ? req.body.lupas : []
 
-    if (!Array.isArray(medidores) || medidores.length === 0) {
+    if (medidores.length === 0 && lupas.length === 0) {
       return res.status(400).json({ error: 'No hay medidores para importar' })
     }
 
@@ -198,9 +217,37 @@ router.post('/confirmar', proteger, soloRol('admin'), async (req, res) => {
     const creados = aCrear.length > 0 ? await Medidor.insertMany(aCrear) : []
     if (creados.length > 0) cache.invalidarUls()
 
+    // Lupas para medidores que ya existían. El filtro exige que no tengan uno:
+    // así nunca se pisa un lupa ya guardado, ni aunque el preview esté viejo.
+    let lupasAgregados = 0
+    for (const l of lupas) {
+      const serie = typeof l?.medidorLupa?.numeroDeSerie === 'string' ? l.medidorLupa.numeroDeSerie.trim() : ''
+      if (!l?.instalacion || !serie) continue
+      const marca = typeof l.medidorLupa.marca === 'string' ? l.medidorLupa.marca : null
+      const r = await Medidor.updateOne(
+        {
+          instalacion: String(l.instalacion),
+          $or: [{ medidorLupa: { $exists: false } }, { 'medidorLupa.numeroDeSerie': null }],
+        },
+        {
+          $set: { medidorLupa: { numeroDeSerie: serie, marca } },
+          $push: {
+            historial: {
+              usuario: req.usuario._id,
+              nombre: req.usuario.nombre,
+              accion: `medidor lupa agregado por importación (serie ${serie})`,
+              fecha: new Date(),
+            },
+          },
+        }
+      )
+      lupasAgregados += r.modifiedCount
+    }
+
     res.status(201).json({
       totalCreados: creados.length,
       totalOmitidos: medidores.length - creados.length,
+      lupasAgregados,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })

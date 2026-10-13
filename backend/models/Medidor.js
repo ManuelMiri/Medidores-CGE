@@ -98,6 +98,20 @@ const marcaPermanenteSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// Medidor lupa: un segundo medidor del mismo servicio, en el poste de afuera,
+// para comparar con el de la casa y detectar hurto o un medidor que marca mal.
+// En el archivo de la ruta viene como otra fila con la MISMA instalación y otro
+// número de serie (caso real G3558832, oct-2026). La instalación es única, así
+// que va como dato del servicio y no como otro punto: la coordenada que importa
+// es la de la casa.
+const medidorLupaSchema = new mongoose.Schema(
+  {
+    numeroDeSerie: { type: String, trim: true, default: null },
+    marca:         { type: String, trim: true, default: null },
+  },
+  { _id: false }
+)
+
 const medidorSchema = new mongoose.Schema(
   {
     instalacion: {
@@ -128,6 +142,11 @@ const medidorSchema = new mongoose.Schema(
     // Mongoose con sus valores por defecto aunque no se pase nada.
     marcaPermanente: {
       type: marcaPermanenteSchema,
+      default: undefined,
+    },
+    // Opcional y sin default por lo mismo: casi ningún servicio tiene lupa.
+    medidorLupa: {
+      type: medidorLupaSchema,
       default: undefined,
     },
     fotos:             { type: [fotoSchema], default: [] },

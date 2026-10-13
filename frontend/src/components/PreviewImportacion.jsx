@@ -14,23 +14,32 @@ export default function PreviewImportacion({ resumen, confirmando, onConfirmar, 
       </p>
 
       {/* El archivo de origen puede traer la misma instalación más de una vez.
-          Se importa una sola; si la repetida traía otro medidor, ese queda
-          afuera y hay que decirlo, porque es un dato que se pierde. */}
+          Se importa una sola. Si la repetida trae otra serie es el medidor
+          lupa (el del poste) y se guarda con el servicio; si trae una tercera,
+          esa sí queda afuera y hay que decirlo. */}
       {resumen.repetidos?.length > 0 && (
         <div className="alert alert-warning py-1 px-2" style={{ fontSize: '0.78rem' }}>
           El archivo traía {resumen.totalFilas} filas con instalaciones repetidas; se importa
           una por instalación.
-          {resumen.repetidos.some((r) => r.otrosMedidores.length > 0) && (
+          {resumen.repetidos.some((r) => r.lupa) && (
             <div className="mt-1" style={{ color: '#9b2c2c' }}>
-              Instalaciones con más de un medidor (solo se guarda el primero):
-              {resumen.repetidos.filter((r) => r.otrosMedidores.length > 0).map((r) => (
+              Con medidor lupa (se guarda junto al de la casa):
+              {resumen.repetidos.filter((r) => r.lupa).map((r) => (
                 <div key={r.instalacion}>
-                  <strong>{r.instalacion}</strong>: también serie {r.otrosMedidores.join(', ')}
+                  <strong>{r.instalacion}</strong>: lupa serie {r.lupa}
+                  {r.otrosMedidores?.length > 0 && ` · quedan afuera: ${r.otrosMedidores.join(', ')}`}
                 </div>
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {resumen.lupasNuevas?.length > 0 && (
+        <p style={{ fontSize: '0.8rem' }}>
+          Además se agrega el medidor lupa a <strong>{resumen.lupasNuevas.length}</strong>{' '}
+          servicio(s) que ya estaban registrados (no se toca nada más).
+        </p>
       )}
 
       {resumen.nuevos.length === 0 ? (
@@ -67,7 +76,7 @@ export default function PreviewImportacion({ resumen, confirmando, onConfirmar, 
         <button
           className="btn btn-success btn-sm flex-fill"
           onClick={onConfirmar}
-          disabled={confirmando || resumen.nuevos.length === 0}
+          disabled={confirmando || (resumen.nuevos.length === 0 && !(resumen.lupasNuevas?.length > 0))}
         >
           {confirmando ? 'Importando…' : `✅ Confirmar importación (${resumen.nuevos.length})`}
         </button>

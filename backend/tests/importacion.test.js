@@ -422,9 +422,84 @@ describe('Instalaciones repetidas dentro del archivo', () => {
     expect(res.body.totalEnKml).toBe(3)
     expect(res.body.nuevos.map((m) => m.instalacion).sort()).toEqual(['100855065', 'G0000001', 'G0000002'])
     const porInst = Object.fromEntries(res.body.repetidos.map((r) => [r.instalacion, r]))
-    expect(porInst['100855065']).toEqual({ instalacion: '100855065', veces: 4, otrosMedidores: [] })
-    // dos medidores en una instalación: el segundo queda afuera y se informa
-    expect(porInst['G0000002'].otrosMedidores).toEqual(['OTRO'])
+    expect(porInst['100855065']).toEqual({ instalacion: '100855065', veces: 4, lupa: null, otrosMedidores: [] })
+    // dos medidores en una instalación: el segundo es el lupa del poste
+    expect(porInst['G0000002'].lupa).toBe('OTRO')
+    const conLupa = res.body.nuevos.find((m) => m.instalacion === 'G0000002')
+    expect(conLupa.numeroDeSerie).toBe('S3') // el de la casa sigue siendo el principal
+    expect(conLupa.medidorLupa.numeroDeSerie).toBe('OTRO')
+    expect(res.body.nuevos.find((m) => m.instalacion === 'G0000001').medidorLupa).toBeUndefined()
+  })
+
+  test('el lupa se guarda al crear el medidor', async () => {
+    const token = await crearUsuarioYLoguear('admin')
+    const { body } = await preview(token)
+    await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ medidores: body.nuevos })
+
+    const m = await Medidor.findOne({ instalacion: 'G0000002' })
+    expect(m.numeroDeSerie).toBe('S3')
+    expect(m.medidorLupa.numeroDeSerie).toBe('OTRO')
+    // y uno sin lupa no queda con un objeto vacío
+    const sin = await Medidor.findOne({ instalacion: 'G0000001' }).lean()
+    expect(sin.medidorLupa).toBeUndefined()
+  })
+
+  test('a un medidor que ya existía sin lupa se le agrega, sin tocar lo demás', async () => {
+    // Caso G3558832: quedó creado por un import cortado, antes de los lupas.
+    await Medidor.create({ instalacion: 'G0000002', unidadDeLectura: 'G0000001', numeroDeSerie: 'S3', estado: 'localizado' })
+    const token = await crearUsuarioYLoguear('admin')
+    const { body } = await preview(token)
+
+    expect(body.nuevos.map((m) => m.instalacion)).not.toContain('G0000002')
+    expect(body.lupasNuevas).toEqual([{ instalacion: 'G0000002', medidorLupa: { numeroDeSerie: 'OTRO', marca: null } }])
+
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ medidores: body.nuevos, lupas: body.lupasNuevas })
+
+    expect(res.body.lupasAgregados).toBe(1)
+    const m = await Medidor.findOne({ instalacion: 'G0000002' })
+    expect(m.medidorLupa.numeroDeSerie).toBe('OTRO')
+    expect(m.estado).toBe('localizado') // lo de terreno no se toca
+    expect(m.historial.at(-1).accion).toContain('lupa')
+  })
+
+  test('solo lupas, sin medidores nuevos, también se puede confirmar', async () => {
+    await Medidor.create({ instalacion: 'G0000002', unidadDeLectura: 'G0000001' })
+    const token = await crearUsuarioYLoguear('admin')
+
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ medidores: [], lupas: [{ instalacion: 'G0000002', medidorLupa: { numeroDeSerie: 'OTRO' } }] })
+
+    expect(res.status).toBe(201)
+    expect(res.body.lupasAgregados).toBe(1)
+  })
+
+  test('nunca pisa un lupa que ya estaba guardado', async () => {
+    await Medidor.create({
+      instalacion: 'G0000002', unidadDeLectura: 'G0000001',
+      medidorLupa: { numeroDeSerie: 'ORIGINAL', marca: 'X' },
+    })
+    const token = await crearUsuarioYLoguear('admin')
+
+    const { body } = await preview(token)
+    expect(body.lupasNuevas).toEqual([])
+
+    // ni aunque alguien lo mande igual (un preview viejo, por ejemplo)
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ medidores: [], lupas: [{ instalacion: 'G0000002', medidorLupa: { numeroDeSerie: 'OTRO' } }] })
+
+    expect(res.body.lupasAgregados).toBe(0)
+    const m = await Medidor.findOne({ instalacion: 'G0000002' })
+    expect(m.medidorLupa.numeroDeSerie).toBe('ORIGINAL')
   })
 
   test('confirmar con la lista del preview crea todo sin E11000', async () => {

@@ -207,6 +207,13 @@ export function DetalleMedidor({
         <strong>Dirección:</strong> {medidor.direccion || '—'}<br />
         <strong>Poste:</strong> {medidor.numeroDePoste || '—'}<br />
         <strong>Serie:</strong> {medidor.numeroDeSerie || '—'}<br />
+        {/* El lupa es el medidor del poste que se compara con el de la casa:
+            el lector tiene que saber que existe para no confundirlo con otro
+            servicio cuando lo encuentra afuera. */}
+        {medidor.medidorLupa?.numeroDeSerie && (
+          <><strong>Medidor lupa:</strong> serie {medidor.medidorLupa.numeroDeSerie}
+            {medidor.medidorLupa.marca && ` (${medidor.medidorLupa.marca})`}<br /></>
+        )}
         {decide && (
           <><strong>UL:</strong> {medidor.unidadDeLectura || '—'}<br /></>
         )}
