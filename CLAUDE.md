@@ -95,7 +95,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 140 tests con node --test (1 se salta sin log real)
+npm test              # 142 tests con node --test (1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -215,6 +215,9 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
   ruta. **No se recuerda** entre sesiones a propósito: prendido al día siguiente, el mapa saldría vacío.
 - **Mover un pin** es desde "✏️ Editar" → "Cambiar ubicación en el mapa" (tocar el mapa o "Usar mi
   GPS"). Reemplaza a borrar y recrear, que perdía historial y fotos.
+- **"🚗 Ir"** en el popup abre Google Maps con la URL universal (`utils/navegacion.js`); en el APK
+  Android la pasa a la app de Maps. **"◎"** (abajo a la derecha) centra en tu posición y prende el
+  punto azul si estaba apagado; es un contador (`pedidoCentrar`) que escuchan los dos motores.
 
 ## Trampas que ya costaron tiempo
 
