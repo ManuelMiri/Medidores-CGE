@@ -104,7 +104,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 88 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 89 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3

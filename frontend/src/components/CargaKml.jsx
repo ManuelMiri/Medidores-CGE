@@ -9,6 +9,18 @@ import { Modal, Spinner } from 'react-bootstrap'
 import api from '../services/api'
 import PreviewImportacion from './PreviewImportacion'
 
+// Si el servidor no explica el error (un 413 de Express llega como HTML y no
+// trae `error`), al menos se muestra el código. Con solo "Error al importar"
+// una ruta de 515 medidores falló en terreno y no había por dónde empezar.
+function mensajeDeError(err, generico) {
+  const propio = err.response?.data?.error
+  if (propio) return propio
+  const estado = err.response?.status
+  if (estado === 413) return 'La ruta es demasiado grande para el servidor (HTTP 413).'
+  if (estado) return `${generico} (HTTP ${estado})`
+  return `${generico}: sin respuesta del servidor. Revisa la conexión.`
+}
+
 export default function CargaKml({ onImportado }) {
   const [modalAbierto, setModalAbierto] = useState(false)
   const [cargando, setCargando] = useState(false)
@@ -42,7 +54,7 @@ export default function CargaKml({ onImportado }) {
       })
       setResumen(data)
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al leer el archivo')
+      setError(mensajeDeError(err, 'Error al leer el archivo'))
     } finally {
       setCargando(false)
       e.target.value = '' // permite volver a elegir el mismo archivo si falla
@@ -57,7 +69,7 @@ export default function CargaKml({ onImportado }) {
       cerrar()
       onImportado?.() // el padre recarga medidores (y ULs, por si aparece una nueva)
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al importar')
+      setError(mensajeDeError(err, 'Error al importar'))
     } finally {
       setConfirmando(false)
     }

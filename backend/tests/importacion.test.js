@@ -200,6 +200,33 @@ describe('POST /api/importacion/confirmar', () => {
     const totalMedidores = await Medidor.countDocuments()
     expect(totalMedidores).toBe(2)
   })
+
+  test('acepta una ruta grande: el cuerpo pasa los 100 KB por defecto de Express', async () => {
+    // Caso real: la E3509011 trae 515 medidores (~176 KB de JSON) y el
+    // confirmar daba 413. Se arma una de 600 con campos de largo parecido.
+    const tokenAdmin = await crearUsuarioYLoguear('admin')
+    const medidores = Array.from({ length: 600 }, (_, i) => ({
+      instalacion: String(103000000 + i),
+      zona: 'MAULE',
+      establecimiento: 'CGE: EMPLAZ TALCA',
+      proceso: 9,
+      unidadDeLectura: 'E3509011',
+      direccion: 'CAMINO RURAL S/N LOTE ' + i + ' YERBAS BUENAS SECTOR ORIENTE',
+      numeroDePoste: '6-000719',
+      numeroDeSerie: '20250205707',
+      marca: null,
+      ubicacion: { type: 'Point', coordinates: [-71.6369835, -35.5869795] },
+    }))
+    expect(Buffer.byteLength(JSON.stringify({ medidores }))).toBeGreaterThan(150 * 1024)
+
+    const res = await request(app)
+      .post('/api/importacion/confirmar')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ medidores })
+
+    expect(res.status).toBe(201)
+    expect(res.body.totalCreados).toBe(600)
+  })
 })
 
 describe('Importación desde Excel de SAP (.xlsx)', () => {

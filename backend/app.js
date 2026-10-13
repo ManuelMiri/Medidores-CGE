@@ -14,7 +14,11 @@ app.use(cors({
     'https://localhost'
   ]
 }))
-app.use(express.json())
+// El límite por defecto de express.json() es 100 KB, y /importacion/confirmar
+// recibe la ruta entera: ~340 bytes por medidor, así que una de ~300 cabía
+// justo y una de 515 (E3509011, oct-2026) daba 413 en HTML, que la app solo
+// podía mostrar como "Error al importar". 10 MB alcanza para ~30.000.
+app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
 
 // Rutas
