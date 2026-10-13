@@ -253,8 +253,9 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   `tests/cache.test.js` levanta uno de verdad.
 - **Toda ruta que cree o borre medidores tiene que llamar a `cache.invalidarUls()`**: la lista de ULs
   (`GET /medidores/uls`) se cachea 60 s y si no, una ruta importada tarda un minuto en aparecer.
-- **La carga de medidores trae hasta 500 por UL** (`limite=500`). Lo que busque solo en lo cargado
-  puede no ver todo; por eso el buscador termina preguntando al servidor.
+- **La carga de medidores trae hasta 1500 por UL** (`limite=1500`; las rutas más largas tienen ~1000).
+  Era 500 y una ruta de 515 dejaba 15 fuera del mapa sin aviso. El backend no tiene tope propio, así
+  que el límite vive solo en `Mapa.jsx`. El buscador igual termina preguntando al servidor.
 - **Respuestas opacas en el caché.** Chrome le cobra ~7 MB de cuota a cada una. Cachear solo `200` con
   `type !== 'opaque'`.
 - **Capacitor 8 exige JDK 21.** Con 17 el build muere con `invalid source release: 21`, mensaje que no

@@ -545,7 +545,9 @@ export default function Mapa() {
   const cargarMedidores = useCallback(async () => {
     try {
       setCargando(true)
-      const promesas = ulsActivas.map(ul => api.get(`/medidores?ul=${ul}&limite=500`))
+      // 1500 por UL: las rutas más largas tienen ~1000 servicios. Con 500, la
+      // E3509011 (515) dejaba 15 medidores fuera del mapa sin ningún aviso.
+      const promesas = ulsActivas.map(ul => api.get(`/medidores?ul=${ul}&limite=1500`))
       const resultados = await Promise.all(promesas)
       const todos = resultados.flatMap(r => r.data.medidores)
       const unicos = Array.from(new Map(todos.map(m => [m._id, m])).values())
