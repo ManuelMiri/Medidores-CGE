@@ -180,8 +180,12 @@ router.post('/', proteger, async (req, res) => {
 // Actualizar medidor — registra auditoría
 router.patch('/:instalacion', proteger, async (req, res) => {
   try {
+    // 'ubicacion' ya no va acá: mover un punto tiene su propia ruta
+    // (PATCH /:instalacion/ubicacion), solo para admin y supervisor y con la
+    // posición anterior en el historial. Ningún cliente la mandaba por este
+    // camino, así que un APK viejo no nota la diferencia.
     const camposPermitidos = [
-      'estado', 'observaciones', 'ubicacion',
+      'estado', 'observaciones',
       'zona', 'establecimiento', 'proceso', 'direccion',
       'numeroDePoste', 'numeroDeSerie', 'marca',
     ]
@@ -360,6 +364,54 @@ router.patch('/:instalacion/marca', proteger, soloRol('admin', 'supervisor'), as
 router.delete('/:instalacion/marca', proteger, async (req, res) => {
   try {
     await aplicar(req, res, { $unset: { marcaPermanente: '' } }, 'marca quitada')
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/medidores/:instalacion/ubicacion — mover el pin
+// Caso real: una ruta importada traía servicios en una posición que no era la
+// suya, y la única forma de corregirlos era borrar el punto y crearlo de
+// nuevo, perdiendo su historial y sus fotos. Mover es de admin o supervisor
+// porque una ubicación mal puesta manda al próximo lector al lugar
+// equivocado. La posición anterior queda escrita en el historial: así nunca
+// se pierde de dónde venía el punto y se puede deshacer a mano.
+router.patch('/:instalacion/ubicacion', proteger, soloRol('admin', 'supervisor'), async (req, res) => {
+  try {
+    const lat = Number(req.body.lat)
+    const lng = Number(req.body.lng)
+    // Number() y no parseFloat: "12abc" tiene que ser un error, no 12.
+    const valida = req.body.lat !== null && req.body.lng !== null &&
+      req.body.lat !== '' && req.body.lng !== '' &&
+      Number.isFinite(lat) && Number.isFinite(lng) &&
+      Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+    if (!valida) {
+      return res.status(400).json({ error: 'La nueva ubicación necesita lat y lng válidas' })
+    }
+
+    const actual = await Medidor.findOne({ instalacion: req.params.instalacion }).select('ubicacion')
+    if (!actual) return res.status(404).json({ error: 'Medidor no encontrado' })
+
+    const fmt = (la, ln) => `${la.toFixed(6)}, ${ln.toFixed(6)}`
+    const antes = actual.ubicacion?.coordinates
+    const desde = antes ? fmt(antes[1], antes[0]) : 'sin ubicación'
+
+    const medidor = await Medidor.findOneAndUpdate(
+      { instalacion: req.params.instalacion },
+      {
+        $set: { ubicacion: { type: 'Point', coordinates: [lng, lat] } },
+        $push: {
+          historial: {
+            usuario: req.usuario._id,
+            nombre: req.usuario.nombre,
+            accion: `ubicación movida de ${desde} a ${fmt(lat, lng)}`,
+            fecha: new Date(),
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    )
+    res.json(medidor)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
