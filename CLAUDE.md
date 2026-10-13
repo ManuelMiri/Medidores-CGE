@@ -275,9 +275,12 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-Al 2026-10-13, `main`, `Develop` y `map` están en el mismo commit y en el remoto, y producción
-(Railway y Vercel) tiene todo: TOES, la marca permanente, MapLibre, el buscador por UL y el panel
-desplegable. El APK repartido es la **2.2 (code 4)**.
+Al 2026-10-13 (tarde), `main`, `Develop` y `terreno-oct` están en el mismo commit y producción
+(Railway y Vercel) tiene todo: TOES, la marca permanente, MapLibre, el buscador por UL, el panel
+desplegable, y de la rama `terreno-oct`: rutas grandes en `/importacion/confirmar` (límite 10 MB),
+mover un pin, "Solo casas cerradas", "Ir" y "centrar en mí". El APK repartido sigue siendo la
+**2.2 (code 4)**: lo de terreno-oct que es solo de frontend no les llega a los otros teléfonos hasta
+repartir uno nuevo (la PWA y el backend sí).
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
