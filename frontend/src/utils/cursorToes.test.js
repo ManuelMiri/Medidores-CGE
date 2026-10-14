@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import {
   bytesDePrefijo,
   cursorInicial,
+  FORMATO_PARSER,
   avanceDeCursor,
   topeSiguiente,
   MARCA_BLOQUE,
@@ -55,18 +56,25 @@ describe('cursorInicial', () => {
   })
 
   test('continúa donde quedó si el archivo creció', () => {
-    const previo = { cursor: 500, tamano: 900, unidadOffset: 'bytes' }
+    const previo = { cursor: 500, tamano: 900, unidadOffset: 'bytes', formato: FORMATO_PARSER }
     assert.equal(cursorInicial(previo, 1200), 500)
   })
 
   test('si el archivo se achicó, relee entero', () => {
-    const previo = { cursor: 500, tamano: 900, unidadOffset: 'bytes' }
+    const previo = { cursor: 500, tamano: 900, unidadOffset: 'bytes', formato: FORMATO_PARSER }
     assert.equal(cursorInicial(previo, 400), 0)
   })
 
   test('nunca devuelve un cursor más allá del final', () => {
-    const previo = { cursor: 5000, tamano: 100, unidadOffset: 'bytes' }
+    const previo = { cursor: 5000, tamano: 100, unidadOffset: 'bytes', formato: FORMATO_PARSER }
     assert.equal(cursorInicial(previo, 100), 100)
+  })
+
+  test('un cursor de un formato anterior del parser se descarta', () => {
+    // Lo leído antes del GPS del lector quedó sin GPS: hay que releerlo una vez
+    // para poder crear los pines que faltan de días anteriores.
+    assert.equal(cursorInicial({ cursor: 500, tamano: 900, unidadOffset: 'bytes' }, 900), 0)
+    assert.equal(cursorInicial({ cursor: 500, tamano: 900, unidadOffset: 'bytes', formato: 1 }, 900), 0)
   })
 
   test('un cursor corrupto no rompe nada', () => {

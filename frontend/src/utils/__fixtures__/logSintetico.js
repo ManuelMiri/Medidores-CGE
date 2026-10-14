@@ -20,6 +20,9 @@ export function bloqueServicio({
   registro = 1,
   // sirve para probar que el conteo de llaves respeta strings
   calle = 'CALLEJONES',
+  // GPS del lector al guardar: TOES lo escribe como texto, X = latitud
+  gps = { lat: '-35.4000001', lng: '-71.6000001' },
+  marcaMedidor = 'MARCA-1',
 } = {}) {
   const json = {
     uid: 'id-sintetico-' + orden,
@@ -36,6 +39,9 @@ export function bloqueServicio({
       METERREADINGNOTE: clave,
       ACTUALMRDATE: fecha,
       GERAET: medidor,
+      HERST: marcaMedidor,
+      LEC_COOR_X: gps?.lat ?? null,
+      LEC_COOR_Y: gps?.lng ?? null,
     },
     mParameters: {},
     method: 'update',
@@ -64,6 +70,42 @@ export function bloqueSincronizacion(servicios = [{}]) {
     entityName: 'GroupOrdenes',
   }
   return `${PREFIJO}-- Sincronizado correctamente --\n${PREFIJO}${JSON.stringify(json, null, 2)}\n${PREFIJO}--------------------------------\n`
+}
+
+// Cambio de medidor: TOES lo escribe al sincronizar, como un bloque aparte
+// justo después del "Backup" de la orden (que va con clave 10 y todavía trae
+// el medidor VIEJO en GERAET). Forma copiada del log real del 2026-10-14; la
+// linea no lleva marcador, solo "DEBUG : {".
+export function bloqueCambioMedidor({
+  unidad = 'E9999999',
+  instalacion = 'Z1',
+  ciclo = '2026-10-06',
+  serie = 'SERIE-NUEVA',
+  marca = 'MARCA-NUEVA',
+  lectura = '00001',
+  timestamp = Date.parse('2026-10-06T19:53:21.920Z'),
+  hora = '16:53:23.058',
+} = {}) {
+  const json = {
+    uid: 'id-' + timestamp + '-1',
+    sPath: '/CambioMedidor',
+    oData: {
+      ABLEINH: unidad,
+      ZWKENN: 'AC',
+      READINGRESULT: lectura,
+      ANLAGE: instalacion,
+      ADATSOLL: ciclo + 'T00:00:00.000Z',
+      SERNR: serie,
+      HERST_CAMMED: marca,
+    },
+    mParameters: {},
+    parent: '',
+    timestamp,
+    method: 'create',
+    entityName: 'CambioMedidor',
+  }
+  const p = `2026-10-06 ${hora} : DEBUG : `
+  return `${p}-- Sincronizado correctamente --\n${p}${JSON.stringify(json, null, 2)}\n${p}--------------------------------\n`
 }
 
 // Las dos variantes de cierre que escribe TOES. El README solo documentaba

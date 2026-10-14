@@ -1,7 +1,10 @@
 // toesParser.js
 // Lee el texto de un Log_TOES-*.txt y devuelve solo lo necesario para el mapa:
 // qué instalación se tomó, en qué UL y ciclo, con qué clave (si hubo) y a qué hora.
-// No guarda lecturas, direcciones ni otros datos del cliente.
+// No guarda lecturas, direcciones ni otros datos del cliente. Sí guarda, en el
+// teléfono, el medidor (serie y marca) y el GPS del lector al guardar: con eso
+// se crea el pin de un servicio que no está en el mapa, y es lo único de esto
+// que sale del teléfono, solo para esos servicios (ver CLAUDE.md).
 
 const MARCA = 'Backup de la lectura (';
 
@@ -32,6 +35,19 @@ const limpio = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
 // "2026-10-06T00:00:00.000Z" -> "2026-10-06"
 const soloFecha = (v) => limpio(v).slice(0, 10);
+
+// Dónde estaba parado el lector cuando guardó (LEC_COOR_X es la latitud,
+// LEC_COOR_Y la longitud; comprobado contra 1.061 pines: mediana 8 m, p90
+// 29 m). Sirve para crear el pin de un servicio que no está en el mapa
+// (hooks/useAltasToes.js). Fuera de Chile continental, o en 0,0, es un GPS
+// sin señal y no se usa.
+function gpsDelLector(x, y) {
+  const lat = parseFloat(x);
+  const lng = parseFloat(y);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -56 || lat > -17 || lng < -76 || lng > -66) return null;
+  return { lat, lng };
+}
 
 /**
  * Procesa un texto de log (completo o solo la parte nueva).
@@ -68,10 +84,12 @@ export function parsearLog(texto) {
         ciclo: soloFecha(o.ADATSOLL), // fecha programada = identifica el ciclo
         instalacion: limpio(o.ANLAGE),
         medidor: limpio(o.GERAET),
+        marca: limpio(o.HERST) || null,
         orden: limpio(o.ABLBELNR),
         clave: clave || null,
         conLectura: limpio(o.READINGRESULT) !== '',
         fecha: o.ACTUALMRDATE || null,
+        gps: gpsDelLector(o.LEC_COOR_X, o.LEC_COOR_Y),
       });
     } catch {
       invalidos++; // bloque corrupto: se salta, pero queda contado
@@ -99,7 +117,67 @@ export function parsearLog(texto) {
     }
   }
 
-  return { eventos, cierres, consumido, invalidos };
+  // Cambios de medidor (clave 10). TOES deja la serie y la marca NUEVAS en un
+  // bloque aparte, /CambioMedidor, que escribe al sincronizar justo después
+  // del "Backup" de la orden — y ese backup todavía trae el medidor VIEJO en
+  // GERAET. Igual que los cierres: se buscan en todo el trozo, pueden
+  // repetirse entre lecturas y no mueven `consumido`.
+  //
+  // El bloque trae también la lectura del medidor nuevo (READINGRESULT): no
+  // se copia, como todo lo demás que es del cliente.
+  const cambiosMedidor = [];
+  const MARCA_CAMBIO = '"sPath": "/CambioMedidor"';
+  let pc = 0;
+  while (true) {
+    const idx = texto.indexOf(MARCA_CAMBIO, pc);
+    if (idx === -1) break;
+    pc = idx + MARCA_CAMBIO.length;
+    const inicioJson = texto.lastIndexOf('{', idx);
+    if (inicioJson === -1) continue;
+    const bloque = extraerJson(texto, inicioJson);
+    if (!bloque) break; // incompleto: llega en la próxima lectura
+    try {
+      const d = JSON.parse(bloque.json);
+      const o = d.oData || {};
+      const serie = limpio(o.SERNR);
+      const instalacion = limpio(o.ANLAGE);
+      if (d.sPath === '/CambioMedidor' && serie && instalacion) {
+        cambiosMedidor.push({
+          unidad: limpio(o.ABLEINH),
+          ciclo: soloFecha(o.ADATSOLL),
+          instalacion,
+          serie,
+          marca: limpio(o.HERST_CAMMED) || null,
+          fecha: Number.isFinite(d.timestamp) ? new Date(d.timestamp).toISOString() : null,
+        });
+      }
+    } catch {
+      invalidos++;
+    }
+    pc = bloque.fin;
+  }
+
+  return { eventos, cierres, cambiosMedidor, consumido, invalidos };
+}
+
+/**
+ * Suma cambios de medidor nuevos a los ya conocidos, sin repetir: el mismo
+ * bloque se lee varias veces (relecturas, cursor perdido). La serie anterior
+ * sale del estado: es el GERAET del último guardado de esa orden, que es el de
+ * la clave 10 y todavía trae el medidor viejo.
+ */
+export function acumularCambios(previos, nuevos, estado) {
+  const vistos = new Set(previos.map((c) => `${c.instalacion}|${c.serie}`));
+  const salida = [...previos];
+  for (const c of nuevos) {
+    const k = `${c.instalacion}|${c.serie}`;
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    const previo = estado?.get(llave(c.unidad, c.ciclo, c.instalacion));
+    const anterior = previo?.medidor && previo.medidor !== c.serie ? previo.medidor : null;
+    salida.push({ ...c, serieAnterior: anterior });
+  }
+  return salida;
 }
 
 /** Llave única: UL + ciclo + instalación. */

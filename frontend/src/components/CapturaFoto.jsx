@@ -2,9 +2,40 @@
 // Le permite a un técnico sacarle una foto a un medidor desde el celular
 // (usando la cámara directo, sin galería) y la sube junto con un nombre
 // y las coordenadas GPS de dónde estaba parado en ese momento.
-import { useState, useRef } from 'react'
+//
+// La foto se achica en el teléfono (utils/comprimirFoto.js) y se guarda en la
+// cola local ANTES de intentar subirla (utils/colaFotos.js): sin señal queda
+// esperando y se sube sola, en vez de perderse como pasó el 2026-10-14.
+import { useState, useRef, useEffect } from 'react'
 import { Spinner } from 'react-bootstrap'
 import api from '../services/api'
+import { comprimirFoto } from '../utils/comprimirFoto'
+import { EVENTO, guardarPendiente, listarPendientes, nuevoIdLocal, subirPendiente } from '../utils/colaFotos'
+
+// Las fotos de este medidor que todavía esperan señal, con una URL local
+// para poder mostrarlas. Las URLs se liberan al cambiar la lista.
+function usePendientesDe(instalacion) {
+  const [pendientes, setPendientes] = useState([])
+  useEffect(() => {
+    let vivo = true
+    let urls = []
+    async function cargar() {
+      const todas = (await listarPendientes()).filter((f) => f.instalacion === instalacion)
+      if (!vivo) return
+      urls.forEach((u) => URL.revokeObjectURL(u))
+      urls = todas.map((f) => URL.createObjectURL(f.blob))
+      setPendientes(todas.map((f, i) => ({ ...f, url: urls[i] })))
+    }
+    cargar()
+    window.addEventListener(EVENTO, cargar)
+    return () => {
+      vivo = false
+      window.removeEventListener(EVENTO, cargar)
+      urls.forEach((u) => URL.revokeObjectURL(u))
+    }
+  }, [instalacion])
+  return pendientes
+}
 
 export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoSubida }) {
   const inputRef = useRef(null)
@@ -15,6 +46,8 @@ export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoS
   const [buscandoUbicacion, setBuscandoUbicacion] = useState(false)
   const [subiendo, setSubiendo] = useState(false)
   const [error, setError] = useState(null)
+  const [aviso, setAviso] = useState(null)
+  const pendientes = usePendientesDe(instalacion)
 
   // Al elegir/tomar la foto, pido la ubicación GPS al toque — así el
   // técnico no tiene que acordarse de nada, queda todo listo para subir.
@@ -25,6 +58,7 @@ export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoS
     setArchivo(file)
     setPreviewUrl(URL.createObjectURL(file))
     setError(null)
+    setAviso(null)
     pedirUbicacion()
   }
 
@@ -68,21 +102,37 @@ export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoS
 
     setSubiendo(true)
     setError(null)
+    setAviso(null)
+    let foto
     try {
-      const formData = new FormData()
-      formData.append('foto', archivo)
-      formData.append('nombre', nombre.trim())
-      formData.append('lat', coordenadas.lat)
-      formData.append('lng', coordenadas.lng)
+      foto = {
+        idLocal: nuevoIdLocal(),
+        instalacion,
+        nombre: nombre.trim(),
+        lat: coordenadas.lat,
+        lng: coordenadas.lng,
+        fecha: new Date().toISOString(),
+        blob: await comprimirFoto(archivo),
+      }
+      // Primero al teléfono: desde acá la foto ya no se pierde pase lo que pase.
+      await guardarPendiente(foto)
+    } catch {
+      setError('No se pudo guardar la foto en el teléfono')
+      setSubiendo(false)
+      return
+    }
 
-      const { data } = await api.post(`/medidores/${instalacion}/fotos`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
+    try {
+      const data = await subirPendiente(foto, api)
       cancelar()
       onFotoSubida?.(data)
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al subir la foto')
+      // Quedó en la cola: el lector puede seguir. Se sube sola con señal, o
+      // se reintenta desde el panel lateral.
+      cancelar()
+      setAviso(err?.response
+        ? `El servidor no la aceptó (${err.response.data?.error ?? err.response.status}). Quedó guardada en el teléfono; se puede reintentar desde el panel.`
+        : 'Sin señal: la foto quedó guardada en el teléfono y se sube sola cuando vuelva la señal.')
     } finally {
       setSubiendo(false)
     }
@@ -106,6 +156,20 @@ export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoS
         </div>
       )}
 
+      {pendientes.length > 0 && (
+        <div className="d-flex flex-wrap gap-2 mb-2">
+          {pendientes.map((f) => (
+            <div key={f.idLocal} title={f.error ? `${f.nombre}: ${f.error}` : `${f.nombre}: esperando señal`}
+              style={{ position: 'relative' }}>
+              <img src={f.url} alt={f.nombre}
+                style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '2px dashed #d69e2e', opacity: 0.8 }} />
+              <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: '0.8rem' }}>⏳</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {aviso && <div className="alert alert-warning py-1 px-2 mb-2" style={{ fontSize: '0.78rem' }}>{aviso}</div>}
       {error && <div className="alert alert-danger py-1 px-2 mb-2" style={{ fontSize: '0.78rem' }}>{error}</div>}
 
       {!archivo ? (
@@ -153,7 +217,7 @@ export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoS
               onClick={handleSubir}
               disabled={subiendo || buscandoUbicacion || !coordenadas}
             >
-              {subiendo ? <Spinner size="sm" /> : '⬆️ Subir foto'}
+              {subiendo ? <Spinner size="sm" /> : '💾 Guardar foto'}
             </button>
           </div>
         </div>

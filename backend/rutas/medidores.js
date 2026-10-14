@@ -184,6 +184,73 @@ router.post('/', proteger, async (req, res) => {
   }
 })
 
+// POST /api/medidores/desde-toes
+// Body: { instalacion, ul, lat, lng, serie?, marca?, ciclo?, fecha? }
+//
+// Crea el pin de un servicio que se tomó en TOES y no estaba en el mapa. La
+// app lo llama sola (hooks/useAltasToes.js). Es la tercera excepción a "el log
+// no sale del teléfono", pedida por el usuario: viaja la instalación, la UL,
+// el ciclo, la serie y la marca del medidor, y el GPS del lector al guardar.
+// Nunca la dirección, la lectura ni el nombre del cliente.
+//
+// Si la instalación ya existe —en esta UL o en otra— no se toca nada: puede
+// ser un servicio mal enrutado, y eso lo decide una persona, no el sondeo.
+router.post('/desde-toes', proteger, async (req, res) => {
+  try {
+    const texto = (v, max = 40) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+    const instalacion = texto(req.body?.instalacion)
+    const ul = texto(req.body?.ul)
+    const lat = Number(req.body?.lat)
+    const lng = Number(req.body?.lng)
+    if (!instalacion || !ul) return res.status(400).json({ error: 'instalacion y ul son obligatorias' })
+    // Chile continental: un GPS sin señal (0,0) o cualquier otra cosa no crea un pin.
+    if (!(lat >= -56 && lat <= -17 && lng >= -76 && lng <= -66)) {
+      return res.status(400).json({ error: 'Coordenadas fuera de rango' })
+    }
+    if (req.usuario.rol === 'lector' && !(req.usuario.unidadesLectura || []).includes(ul)) {
+      return res.status(403).json({ error: 'No tienes acceso a esa UL' })
+    }
+
+    const existente = await Medidor.findOne({ instalacion }).select('instalacion unidadDeLectura')
+    if (existente) {
+      return res.status(200).json({ creado: false, unidadDeLectura: existente.unidadDeLectura })
+    }
+
+    const fechaLectura = new Date(req.body?.fecha)
+    const ciclo = texto(req.body?.ciclo)
+    let medidor
+    try {
+      medidor = await Medidor.create({
+        instalacion,
+        unidadDeLectura: ul,
+        numeroDeSerie: texto(req.body?.serie),
+        marca: texto(req.body?.marca),
+        ubicacion: { type: 'Point', coordinates: [lng, lat] },
+        estado: 'pendiente',
+        desdeToes: {
+          ciclo,
+          fechaLectura: Number.isNaN(fechaLectura.getTime()) ? null : fechaLectura,
+        },
+        historial: [{
+          usuario: req.usuario._id,
+          nombre: req.usuario.nombre,
+          accion: `creado desde TOES (GPS del lector al guardar${ciclo ? `, ciclo ${ciclo}` : ''})`,
+          fecha: new Date(),
+        }],
+      })
+    } catch (err) {
+      // Dos teléfonos (o dos vueltas del sondeo) llegaron a la vez: ya existe.
+      if (err?.code === 11000) return res.status(200).json({ creado: false })
+      throw err
+    }
+    cache.invalidarUls()
+
+    res.status(201).json({ creado: true, medidor })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // PATCH /api/medidores/:instalacion
 // Actualizar medidor — registra auditoría
 router.patch('/:instalacion', proteger, async (req, res) => {
@@ -277,6 +344,74 @@ async function aplicar(req, res, cambios, accion) {
   if (!medidor) return res.status(404).json({ error: 'Medidor no encontrado o sin acceso' })
   res.json(medidor)
 }
+
+// POST /api/medidores/:instalacion/cambio-medidor
+// Body: { serie, marca, serieAnterior?, ciclo?, fecha? }
+//
+// La app lo llama sola cuando el log de TOES trae un bloque /CambioMedidor.
+// Es la segunda excepción a "el log no sale del teléfono", aprobada por el
+// usuario: viaja solo la serie y la marca del medidor (nuevo y anterior), el
+// ciclo y la fecha. Nunca la lectura del medidor nuevo, que también viene en
+// el bloque.
+//
+// Abierto a cualquier rol con acceso a la UL: es el lector el que cambia el
+// medidor en terreno, y lo que hace es dejar la base igual que SAP.
+//
+// Idempotente: el sondeo puede mandar el mismo cambio varias veces.
+router.post('/:instalacion/cambio-medidor', proteger, async (req, res) => {
+  try {
+    const texto = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 40) : null)
+    const serie = texto(req.body?.serie)
+    const marca = texto(req.body?.marca)
+    const serieAnterior = texto(req.body?.serieAnterior)
+    const ciclo = texto(req.body?.ciclo)
+    if (!serie) return res.status(400).json({ error: 'serie es obligatoria' })
+    const fechaPedida = new Date(req.body?.fecha)
+    const fecha = Number.isNaN(fechaPedida.getTime()) ? new Date() : fechaPedida
+
+    const medidor = await Medidor.findOne(filtroPorRol(req))
+    if (!medidor) return res.status(404).json({ error: 'Medidor no encontrado o sin acceso' })
+
+    const yaEsta = medidor.numeroDeSerie === serie ||
+      medidor.medidorLupa?.numeroDeSerie === serie ||
+      medidor.cambioMedidor?.serieNueva === serie
+    if (yaEsta) return res.json(medidor)
+
+    // TOES no dice cuál de los dos se cambió; lo dice la serie vieja que
+    // traía la orden. Si era la del lupa, se cambia el lupa.
+    const esLupa = Boolean(serieAnterior) && medidor.medidorLupa?.numeroDeSerie === serieAnterior
+    const antes = esLupa ? medidor.medidorLupa : medidor
+    const cambio = {
+      cual: esLupa ? 'lupa' : 'principal',
+      serieAnterior: antes.numeroDeSerie ?? serieAnterior,
+      marcaAnterior: antes.marca ?? null,
+      serieNueva: serie,
+      marcaNueva: marca,
+      ciclo,
+      fecha,
+      registradoPor: req.usuario._id,
+    }
+    const $set = { cambioMedidor: cambio }
+    if (esLupa) {
+      $set['medidorLupa.numeroDeSerie'] = serie
+      $set['medidorLupa.marca'] = marca
+    } else {
+      $set.numeroDeSerie = serie
+      $set.marca = marca
+    }
+
+    await aplicar(
+      req,
+      res,
+      { $set },
+      `cambio de medidor${esLupa ? ' lupa' : ''} (TOES${ciclo ? `, ciclo ${ciclo}` : ''}): ` +
+        `${cambio.serieAnterior ?? '—'}${cambio.marcaAnterior ? ` (${cambio.marcaAnterior})` : ''} → ` +
+        `${serie}${marca ? ` (${marca})` : ''}`
+    )
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // POST /api/medidores/:instalacion/marca — proponer
 //

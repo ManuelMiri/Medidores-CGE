@@ -8,6 +8,7 @@ const XLSX = require('xlsx')
 const { proteger, soloRol } = require('../middleware/auth')
 const Medidor = require('../models/Medidor')
 const Usuario = require('../models/Usuario')
+const NotaUl = require('../models/NotaUl')
 const cache = require('../utils/cache')
 
 // Mismo orden de columnas que trae el Excel real de SAP. Los campos que
@@ -93,6 +94,85 @@ router.delete('/:ul', proteger, soloRol('admin'), async (req, res) => {
     )
 
     res.json({ mensaje: 'Ruta eliminada correctamente', totalEliminados: resultado.deletedCount })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Notas de la ruta (ver models/NotaUl.js)
+//
+// Las ve y las escribe cualquiera que tenga la UL: el dato lo sabe el que
+// estuvo en terreno, que casi siempre es un lector. Editar u ocultar es del
+// autor o de un admin/supervisor. No hay DELETE: nada se borra.
+// ---------------------------------------------------------------------------
+
+function tieneLaUl(req) {
+  return req.usuario.rol !== 'lector' ||
+    (req.usuario.unidadesLectura || []).includes(req.params.ul)
+}
+
+const textoDeNota = (v) => (typeof v === 'string' ? v.trim() : '')
+
+// GET /api/rutas/:ul/notas — las visibles, las más nuevas primero
+router.get('/:ul/notas', proteger, async (req, res) => {
+  try {
+    if (!tieneLaUl(req)) return res.status(403).json({ error: 'No tienes acceso a esa UL' })
+    const notas = await NotaUl.find({ ul: req.params.ul, visible: true })
+      .sort({ createdAt: -1 })
+      .select('-ediciones -__v')
+    res.json({ notas })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/rutas/:ul/notas — body: { texto }
+router.post('/:ul/notas', proteger, async (req, res) => {
+  try {
+    if (!tieneLaUl(req)) return res.status(403).json({ error: 'No tienes acceso a esa UL' })
+    const texto = textoDeNota(req.body?.texto)
+    if (!texto) return res.status(400).json({ error: 'La nota no puede ir vacía' })
+    if (texto.length > 1000) return res.status(400).json({ error: 'La nota es muy larga (máximo 1000 caracteres)' })
+
+    const nota = await NotaUl.create({
+      ul: req.params.ul,
+      texto,
+      autor: req.usuario._id,
+      autorNombre: req.usuario.nombre,
+    })
+    res.status(201).json(nota)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/rutas/:ul/notas/:id — body: { texto?, visible? }
+// Ocultar es `visible: false`; la nota sigue en la base.
+router.patch('/:ul/notas/:id', proteger, async (req, res) => {
+  try {
+    if (!tieneLaUl(req)) return res.status(403).json({ error: 'No tienes acceso a esa UL' })
+    const nota = await NotaUl.findOne({ _id: req.params.id, ul: req.params.ul }).catch(() => null)
+    if (!nota) return res.status(404).json({ error: 'Nota no encontrada' })
+
+    const decide = req.usuario.rol === 'admin' || req.usuario.rol === 'supervisor'
+    if (!decide && String(nota.autor) !== String(req.usuario._id)) {
+      return res.status(403).json({ error: 'Solo el autor o un supervisor puede cambiar esta nota' })
+    }
+
+    if (req.body?.texto !== undefined) {
+      const texto = textoDeNota(req.body.texto)
+      if (!texto) return res.status(400).json({ error: 'La nota no puede ir vacía; para sacarla, ocúltala' })
+      if (texto.length > 1000) return res.status(400).json({ error: 'La nota es muy larga (máximo 1000 caracteres)' })
+      if (texto !== nota.texto) {
+        nota.ediciones.push({ texto: nota.texto, usuario: req.usuario._id, nombre: req.usuario.nombre })
+        nota.texto = texto
+      }
+    }
+    if (typeof req.body?.visible === 'boolean') nota.visible = req.body.visible
+
+    await nota.save()
+    res.json(nota)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

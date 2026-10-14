@@ -35,9 +35,17 @@ export function bytesDePrefijo(texto, hasta = texto.length) {
  *
  * El caso `unidadOffset !== 'bytes'` cubre la migración: los teléfonos que ya
  * tenían cursores en caracteres los descartan una vez y siguen en bytes.
+ *
+ * `formato` es lo mismo para el parser: cuando empieza a sacar algo nuevo del
+ * log, lo ya leído quedó sin ese dato. Subir FORMATO_PARSER hace que cada log
+ * se relea una vez. Pasó con el GPS del lector (formato 2): sin releer, los
+ * servicios sin pin de días anteriores nunca se habrían creado.
  */
+export const FORMATO_PARSER = 2
+
 export function cursorInicial(previo, tamano) {
   if (!previo || previo.unidadOffset !== 'bytes') return 0
+  if ((previo.formato ?? 1) !== FORMATO_PARSER) return 0
   if (typeof previo.cursor !== 'number' || !Number.isFinite(previo.cursor)) return 0
   if (previo.cursor <= 0) return 0
   // El archivo se achicó: TOES lo reescribió o es otro archivo con el mismo

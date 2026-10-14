@@ -23,13 +23,18 @@ teléfono.
   es **solo lectura**: nunca escribir, mover ni borrar nada ahí. `ToesPlugin.java` abre en modo `"r"` y
   no tiene una sola llamada que modifique; mantenerlo así.
 - **El contenido de los logs no sale del teléfono.** Traen datos de clientes (direcciones, lecturas,
-  coordenadas). Se procesan on-device y solo se persiste: UL, ciclo, instalación, medidor, clave, si
-  hubo lectura y fecha.
-  - **Única excepción, deliberada: la marca permanente** (`useMarcasToes`). Para que el lector del mes
-    siguiente —otra persona, otro teléfono— vea que en un punto ya no hay medidor, el dato tiene que
-    estar en el servidor. Viaja **solo** instalación, tipo de marca, clave y ciclo. Nunca dirección,
-    lectura, nombre del cliente ni las coordenadas del log. Si hace falta mandar algo más, parar y
-    preguntar.
+  coordenadas). Se procesan on-device y solo se persiste, en el teléfono: UL, ciclo, instalación,
+  medidor (serie y marca), clave, si hubo lectura, fecha y el GPS del lector al guardar.
+  Hay **tres excepciones deliberadas**, aprobadas una por una por el usuario. Cada una manda solo
+  esto, y nunca la dirección, la lectura ni el nombre del cliente:
+  - **Marca permanente** (`useMarcasToes`): instalación, tipo de marca, clave y ciclo. Para que el
+    lector del mes siguiente —otra persona, otro teléfono— vea que en un punto ya no hay medidor.
+  - **Cambio de medidor** (`useCambiosToes`, 2026-10-14): instalación, serie y marca nuevas, serie
+    anterior, ciclo y fecha. Para que la base quede igual que SAP.
+  - **Pin de un servicio sin pin** (`useAltasToes`, 2026-10-14): instalación, UL, ciclo, serie, marca
+    y el GPS del lector al guardar. **Solo** para servicios que no están en la base y **solo** lecturas
+    de los últimos 3 días.
+  Si hace falta mandar algo más, parar y preguntar.
   - Por lo mismo, **pedir un tile al mapa le manda esa coordenada a Esri/OSM**: las coordenadas para
     bajar mapas salen de la base (`medidores[].ubicacion`), nunca del log.
 - **Nunca commitear logs reales** (`Log_TOES*.txt` está en `.gitignore`). Para tests está el fixture
@@ -86,14 +91,27 @@ PWA en Vercel ─────────────┘   /api/...            �
     instalación y otra serie. Se guarda en `medidorLupa`; la coordenada es la de la casa. La
     importación puede agregarle el lupa a un existente que no lo tenga, nunca pisar uno guardado.
   - Las instalaciones son texto: numéricas o con letra (`E714171252`, `G3534036`).
+  - `cambioMedidor` (opcional): el último cambio que registró TOES (serie y marca anteriores y
+    nuevas, si fue el principal o el lupa). Los anteriores quedan en el historial.
+  - `desdeToes` (opcional): el pin lo creó la app con el GPS del lector; el popup avisa que la
+    posición es aproximada.
+  - `fotos[].idLocal`: id que pone el teléfono, para que reintentar una subida no la duplique.
+    `fotos[].fecha` es cuándo se sacó, no cuándo llegó.
+- **Modelo `NotaUl`** (`backend/models/NotaUl.js`): notas de una ruta (la clave de un portón). Se
+  ocultan (`visible: false`), nunca se borran; cada edición guarda el texto anterior.
 - **Endpoints** (todos bajo `/api`, todos con JWT salvo login):
   - `auth`: `login`, `perfil`, `logout`, y gestión de usuarios (solo admin).
   - `medidores`: `GET /` (por `ul`, `limite`), `GET /buscar?q=&ul=A,B`, `GET /uls`, `GET|PATCH|DELETE
     /:instalacion`, `POST /`, `POST|PATCH|DELETE /:instalacion/marca`, `POST /:instalacion/fotos`,
     `PATCH /:instalacion/ubicacion` (mover el pin; admin/supervisor, deja la posición vieja en el
     historial). El `PATCH /:instalacion` general ya **no** acepta `ubicacion`.
+    `POST /:instalacion/cambio-medidor` y `POST /desde-toes` los llama la app sola desde el log
+    (idempotentes; `desde-toes` nunca toca una instalación que ya existe, en ninguna UL).
+    `POST /:instalacion/fotos` acepta `idLocal` y `fecha`.
   - `importacion`: sube KML/KMZ/Excel de SAP → preview → `POST /confirmar` (admin).
-  - `rutas`: `GET /:ul/exportar` (xlsx formato SAP), `DELETE /:ul` (admin).
+  - `rutas`: `GET /:ul/exportar` (xlsx formato SAP), `DELETE /:ul` (admin), y las notas:
+    `GET|POST /:ul/notas`, `PATCH /:ul/notas/:id` (cualquiera con la UL; editar u ocultar, el autor o
+    admin/supervisor).
 - **Variables del backend:** `MONGODB_URI`, `JWT_SECRET`, `CLOUDINARY_CLOUD_NAME`,
   `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `PORT`. Frontend: solo `VITE_API_URL`.
 
@@ -101,7 +119,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 142 tests con node --test (1 se salta sin log real)
+npm test              # 170 tests con node --test (1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -110,7 +128,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 99 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 121 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3
@@ -150,9 +168,16 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 - `adb install -r frontend/android/app/build/outputs/apk/debug/app-debug.apk` conserva los datos y el
   permiso de la carpeta TOES. Abrir: `adb shell monkey -p cl.mla.maule -c android.intent.category.LAUNCHER 1`.
 - **Con la pantalla apagada o bloqueada, Android pausa el WebView** y `webviewCdp.mjs` da timeout.
-  `adb shell svc power stayon usb` la mantiene encendida mientras haya cable (ya quedó puesto;
-  se quita con `svc power stayon false`). Si está en la pantalla de bloqueo, pedirle al usuario que
-  la desbloquee (`dumpsys window | grep isKeyguardShowing`).
+  `adb shell svc power stayon usb` solo sirve si el teléfono **carga** por ese cable, y con el cable
+  del PC del usuario no carga (`dumpsys battery`: `USB powered: false`). Lo que funciona es subir el
+  apagado de pantalla mientras se prueba —`settings put system screen_off_timeout 1800000`— y
+  **devolverlo al terminar: el valor del usuario es `30000`**. Si está en la pantalla de bloqueo,
+  pedirle que la desbloquee (`dumpsys window | grep isKeyguardShowing`).
+- **En Git Bash, `adb shell ls /sdcard/...` falla** porque Git Bash convierte la ruta a
+  `C:/Program Files/Git/sdcard`. Anteponer `MSYS_NO_PATHCONV=1`.
+- Los logs se pueden copiar al PC para analizarlos (`adb pull /sdcard/TOES/<archivo>`, solo
+  lectura), siempre al scratchpad y nunca al repo. Mostrar solo estructura y conteos, nunca
+  direcciones, lecturas ni nombres, y borrarlos al terminar.
 - **`scripts/webviewCdp.mjs`** es la herramienta para ver qué pasa dentro del APK: exporta
   `conectar(adb, 'cl.mla.maule')` y `evaluar(urlWs, expresion)`. Un script de 4 líneas que los importe
   deja leer el DOM, el estado y llamar a la API con el token de la sesión
@@ -193,7 +218,13 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 | `frontend/src/utils/marcasToes.js` | qué claves proponen marca permanente y cuál la quita |
 | `frontend/src/config/clavesToes.json` | la tabla oficial de claves de TOES |
 | `frontend/src/utils/ulsActivas.js` | qué ULs quedan marcadas al abrir la app y al recargar la lista |
-| `frontend/src/hooks/useMarcasToes.js` | lo único de TOES que escribe en el backend |
+| `frontend/src/hooks/useMarcasToes.js` | manda al backend las marcas permanentes |
+| `frontend/src/hooks/useEnviosToes.js` | manda el cambio de medidor y crea los pines que faltan |
+| `frontend/src/utils/cambiosToes.js` | qué cambios de medidor faltan en la base (puro, testeado) |
+| `frontend/src/utils/altasToes.js` | qué servicios tomados no tienen pin, con sus resguardos (puro, testeado) |
+| `frontend/src/hooks/useNotasUl.js` + `components/NotasUl.jsx` | notas de la ruta, con copia en el teléfono |
+| `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal (IndexedDB) |
+| `frontend/src/utils/comprimirFoto.js` | achica la foto a 1920 px antes de guardarla |
 | `frontend/src/hooks/useToes.js` | une parser + almacén + mapa |
 | `frontend/public/sw-tiles.js` | service worker del APK: cachea tiles, no precachea |
 | `frontend/android/.../toes/ToesPlugin.java` | lee `/TOES` por SAF, solo lectura |
@@ -221,6 +252,22 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
   ruta. **No se recuerda** entre sesiones a propósito: prendido al día siguiente, el mapa saldría vacío.
 - **Mover un pin** es desde "✏️ Editar" → "Cambiar ubicación en el mapa" (tocar el mapa o "Usar mi
   GPS"). Reemplaza a borrar y recrear, que perdía historial y fotos.
+- **Cambio de medidor desde TOES:** la app actualiza sola serie y marca. Si la serie vieja era la
+  del lupa, cambia el lupa. El popup muestra "Medidor cambiado: dd-mm · antes X (MARCA)".
+- **Pin automático:** un servicio tomado en TOES que no está en la base se crea con el GPS del
+  lector al guardar, como `pendiente`, y con un aviso de posición aproximada en el popup. Medido
+  contra 1.061 pines: mediana 8 m, p90 29 m, y 1,4 % a más de 500 m. Resguardos (en
+  `altasToes.js`):
+  - no considera una UL sin medidores cargados;
+  - no crea nada si la serie ya está en otro pin;
+  - frena la UL si faltan más de 10 o del 20 %;
+  - solo considera lecturas de los últimos 3 días, para que un pin eliminado no vuelva solo.
+- **Notas de la UL:** botón 📝 en cada UL marcada, con el número de notas a la vista. Sin señal
+  muestra la última copia guardada en el teléfono.
+- **Fotos:** se achican a 1920 px (JPEG 0,75: de varios MB a unos cientos de KB) y se guardan en el
+  teléfono **antes** de subir. Sin señal quedan en la cola, se ven con ⏳ en el popup y el panel
+  avisa cuántas esperan. Se suben solas al volver la red o la app, o cada minuto. Un 4xx no se
+  reintenta solo, pero la foto nunca se descarta.
 - **"🚗 Ir"** en el popup abre Google Maps con la URL universal (`utils/navegacion.js`); en el APK
   Android la pasa a la app de Maps. **"◎"** (abajo a la derecha) centra en tu posición y prende el
   punto azul si estaba apagado; es un contador (`pedidoCentrar`) que escuchan los dos motores.
@@ -283,6 +330,20 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   que pregunta (cambiar de motor, eliminar), reemplazar `window.confirm`/`window.alert` antes, o hacer
   directo lo que haría el botón (el motor es `localStorage.motorMapa`).
 - **`git merge -F -` no lee el mensaje de stdin** (`git commit -F -` sí). Escribirlo a un archivo.
+- **Si el parser empieza a sacar algo nuevo del log, subir `FORMATO_PARSER`** (`cursorToes.js`).
+  Lo ya leído quedó guardado sin ese dato, y el cursor no vuelve atrás. Con el formato nuevo, cada
+  log se relee una vez (es inofensivo: todo se deduplica).
+- **Lo que se sabe del log** (revisado el 2026-10-14 sobre 53 logs y 2.315 lecturas):
+  - `LEC_COOR_X` es la **latitud** y `LEC_COOR_Y` la longitud: el GPS del lector al guardar.
+    Viene en todas las lecturas. `COORDENADA_X/Y` no sirve: falta en el 27 % y, donde viene, queda
+    a ~1,8 km del GPS.
+  - **Cambio de medidor:** el "Backup" de la orden lleva clave 10, sin lectura, y el medidor
+    **viejo** en `GERAET`/`HERST`. Justo después viene un bloque aparte, `/CambioMedidor`
+    (`method: create`), con `SERNR` y `HERST_CAMMED` del **nuevo** y su lectura (que no se copia).
+  - `MOT_LEC_INVEROSIMIL` marca una lectura que TOES encontró rara, y `ZZABLHINW2: "04"` es el
+    lector confirmándola. **No tiene que ver con una devolución** (lo aclaró el usuario).
+  - Dos "Backup" de la misma instalación al mismo segundo con distinto `ZWKENN` (AC/AR) son dos
+    registros del mismo medidor, no una relectura.
 
 ## Estado y qué falta
 
@@ -300,8 +361,20 @@ sigan con la 2.2; lo del backend sí.
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
 
+En la rama **`ajustes-terreno`** (2026-10-14), todavía **no** en `main`: cambio de medidor desde
+TOES, pin automático para servicios sin pin, notas por UL, fotos comprimidas y con cola sin señal.
+Es compatible hacia atrás: un APK nuevo contra el backend viejo recibe 404 en las rutas nuevas y
+no reintenta, y un APK viejo no llama a ninguna.
+
 Pendiente:
 
+- **Servicio devuelto por la analista** (pedido del usuario: que vuelva al mapa con un color
+  especial). Está en pausa hasta analizar un caso real. **El log no registra la devolución**: lo
+  único que se ve es la misma orden (`ABLBELNR`) guardada de nuevo horas después, cuando el lector
+  vuelve. El caso del 2026-10-14 (E713709426) se tomó a las 11:59 y se volvió a guardar a las 16:53,
+  después de terminar la ruta y antes del cierre de las 17:07. Mirar en el próximo caso si TOES
+  escribe algo al **recibir** la orden devuelta: una descarga, otro `sPath` o algún campo que cambie.
+  Si no escribe nada, habrá que marcarlo a mano (un botón en el popup).
 - **Rotar las credenciales de Atlas y Cloudinary**: quedaron expuestas en una sesión anterior.
 - Sacar Leaflet cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en

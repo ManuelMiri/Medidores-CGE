@@ -15,6 +15,13 @@ import CapturaFoto from './CapturaFoto'
 import { marcaDe, textoToes } from '../utils/vistaMarcador'
 import { urlNavegacion } from '../utils/navegacion'
 
+// "14-10" para las fechas cortas del popup; vacío si no hay fecha.
+function diaMes(fecha) {
+  const d = fecha ? new Date(fecha) : null
+  if (!d || Number.isNaN(d.getTime())) return ''
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
 // Botón ✕ propio del popup (el del motor se esconde en escritorio, porque ahí
 // el popup sale corrido a la derecha del pin y el ✕ original queda flotando en
 // otro lado).
@@ -202,6 +209,13 @@ export function DetalleMedidor({
           ✔️ {textoToes(toesDelMedidor, toesConfig)}
         </p>
       )}
+      {medidor.desdeToes && (
+        <p style={{ margin: '0 0 0.3rem', fontSize: '0.74rem', color: '#975a16' }}>
+          📡 Pin creado solo desde TOES ({diaMes(medidor.desdeToes.fechaLectura)}): la posición
+          es el GPS del lector al guardar, puede tener unos metros de error. Se afina con
+          ✏️ Editar → Cambiar ubicación.
+        </p>
+      )}
       <p style={{ margin: 0, fontSize: '0.8rem' }}>
         <strong>Estado del mapeo:</strong> {medidor.estado}<br />
         <strong>Dirección:</strong> {medidor.direccion || '—'}<br />
@@ -213,6 +227,14 @@ export function DetalleMedidor({
         {medidor.medidorLupa?.numeroDeSerie && (
           <><strong>Medidor lupa:</strong> serie {medidor.medidorLupa.numeroDeSerie}
             {medidor.medidorLupa.marca && ` (${medidor.medidorLupa.marca})`}<br /></>
+        )}
+        {/* Lo registra TOES cuando el lector cambia el medidor. El anterior
+            queda a la vista porque es el que alguien con la ruta vieja va a
+            buscar en el poste. */}
+        {medidor.cambioMedidor && (
+          <><strong>{medidor.cambioMedidor.cual === 'lupa' ? 'Lupa cambiado' : 'Medidor cambiado'}:</strong>{' '}
+            {diaMes(medidor.cambioMedidor.fecha)} · antes {medidor.cambioMedidor.serieAnterior || '—'}
+            {medidor.cambioMedidor.marcaAnterior && ` (${medidor.cambioMedidor.marcaAnterior})`}<br /></>
         )}
         {decide && (
           <><strong>UL:</strong> {medidor.unidadDeLectura || '—'}<br /></>

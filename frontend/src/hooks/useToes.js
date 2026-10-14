@@ -16,8 +16,9 @@ import {
   estadoDeUL,
   tomadosPorMedidor,
   cierreDeCiclo,
+  acumularCambios,
 } from '../utils/toesParser'
-import { avanceDeCursor, cursorInicial } from '../utils/cursorToes'
+import { avanceDeCursor, cursorInicial, FORMATO_PARSER } from '../utils/cursorToes'
 import {
   carpetaConcedida,
   esSinPermiso,
@@ -39,6 +40,7 @@ export function useToes(ulsActivas = []) {
   const [listo, setListo] = useState(false)
   const [estado, setEstado] = useState(() => new Map())
   const [cierres, setCierres] = useState([])
+  const [cambiosMedidor, setCambiosMedidor] = useState([])
   const [archivos, setArchivos] = useState({})
   const [descartados, setDescartados] = useState({})
   const [invalidos, setInvalidos] = useState(0)
@@ -66,23 +68,25 @@ export function useToes(ulsActivas = []) {
    * closure la segunda tanda partiría del estado anterior a la primera y
    * borraría sus eventos — y además los persistiría así en IndexedDB.
    */
-  const datos = useRef({ estado: new Map(), cierres: [], archivos: {} })
+  const datos = useRef({ estado: new Map(), cierres: [], cambios: [], archivos: {} })
 
   // Carga inicial desde IndexedDB + la carpeta que Android siga concediendo
   useEffect(() => {
     let vivo = true
     ;(async () => {
-      const [e, c, a, d, carpetaGuardada] = await Promise.all([
+      const [e, c, a, d, carpetaGuardada, cm] = await Promise.all([
         almacen.cargarEstado(),
         almacen.cargarCierres(),
         almacen.cargarArchivos(),
         almacen.cargarCiclosDescartados(),
         almacen.cargarCarpeta(),
+        almacen.cargarCambios(),
       ])
       if (!vivo) return
-      datos.current = { estado: e, cierres: c, archivos: a }
+      datos.current = { estado: e, cierres: c, cambios: cm, archivos: a }
       setEstado(e)
       setCierres(c)
+      setCambiosMedidor(cm)
       setArchivos(a)
       setDescartados(d)
       setListo(true)
@@ -133,6 +137,8 @@ export function useToes(ulsActivas = []) {
       ...previo.cierres,
       ...r.cierres.filter((c) => !vistos.has(`${c.unidad}|${c.tipo}|${c.fechaLog}`)),
     ]
+    // Igual que los cierres: idempotente, porque el mismo bloque se relee.
+    const nuevosCambios = acumularCambios(previo.cambios, r.cambiosMedidor, nuevoEstado)
     const cursor = desde + avance
     const nuevosArchivos = {
       ...previo.archivos,
@@ -140,19 +146,22 @@ export function useToes(ulsActivas = []) {
         tamano,
         cursor,
         unidadOffset: 'bytes',
+        formato: FORMATO_PARSER,
         completo: cursor >= tamano,
       },
     }
 
-    datos.current = { estado: nuevoEstado, cierres: nuevosCierres, archivos: nuevosArchivos }
+    datos.current = { estado: nuevoEstado, cierres: nuevosCierres, cambios: nuevosCambios, archivos: nuevosArchivos }
     setEstado(nuevoEstado)
     setCierres(nuevosCierres)
+    if (nuevosCambios.length !== previo.cambios.length) setCambiosMedidor(nuevosCambios)
     setArchivos(nuevosArchivos)
     if (r.invalidos) setInvalidos((n) => n + r.invalidos)
 
     await Promise.all([
       almacen.guardarEstado(nuevoEstado),
       almacen.guardarCierres(nuevosCierres),
+      almacen.guardarCambios(nuevosCambios),
       almacen.guardarArchivos(nuevosArchivos),
     ])
     return { eventos: r.eventos.length, invalidos: r.invalidos, avance }
@@ -299,9 +308,10 @@ export function useToes(ulsActivas = []) {
     // de Android sigue concedido: se vuelve a guardar para no mandar al lector
     // a elegir la misma carpeta de nuevo.
     if (carpeta) await almacen.guardarCarpeta(carpeta)
-    datos.current = { estado: new Map(), cierres: [], archivos: {} }
+    datos.current = { estado: new Map(), cierres: [], cambios: [], archivos: {} }
     setEstado(new Map())
     setCierres([])
+    setCambiosMedidor([])
     setArchivos({})
     setDescartados({})
     setInvalidos(0)
@@ -346,6 +356,7 @@ export function useToes(ulsActivas = []) {
     config,
     estado,
     cierres,
+    cambiosMedidor,
     archivos,
     invalidos,
     ultimaRevision,

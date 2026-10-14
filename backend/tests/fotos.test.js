@@ -142,3 +142,44 @@ describe('POST /api/medidores/:instalacion/fotos', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('Fotos que esperaron sin señal', () => {
+  const { subirImagen } = require('../utils/cloudinary')
+  const subir = (token, campos) => {
+    let r = request(app).post('/api/medidores/111111/fotos').set('Authorization', `Bearer ${token}`)
+    for (const [k, v] of Object.entries(campos)) r = r.field(k, v)
+    return r.attach('foto', Buffer.from('contenido falso de imagen'), 'foto.jpg')
+  }
+  const base = { nombre: 'Medidor', lat: '-35.5', lng: '-71.1' }
+
+  test('un reintento con el mismo idLocal no la duplica ni la vuelve a subir', async () => {
+    const token = await crearUsuarioYLoguear('admin')
+    await Medidor.create({ instalacion: '111111', unidadDeLectura: 'E0000001' })
+
+    const r1 = await subir(token, { ...base, idLocal: 'tel-1' })
+    const r2 = await subir(token, { ...base, idLocal: 'tel-1' })
+
+    expect(r1.status).toBe(201)
+    expect(r2.status).toBe(200)
+    expect(r2.body.fotos).toHaveLength(1)
+    expect(subirImagen).toHaveBeenCalledTimes(1)
+  })
+
+  test('guarda la hora en que se sacó, no la de llegada', async () => {
+    const token = await crearUsuarioYLoguear('admin')
+    await Medidor.create({ instalacion: '111111', unidadDeLectura: 'E0000001' })
+
+    const res = await subir(token, { ...base, fecha: '2026-10-14T15:00:00.000Z' })
+
+    expect(res.body.fotos[0].fecha).toBe('2026-10-14T15:00:00.000Z')
+  })
+
+  test('una fecha futura se ignora', async () => {
+    const token = await crearUsuarioYLoguear('admin')
+    await Medidor.create({ instalacion: '111111', unidadDeLectura: 'E0000001' })
+
+    const res = await subir(token, { ...base, fecha: '2099-01-01T00:00:00.000Z' })
+
+    expect(new Date(res.body.fotos[0].fecha).getTime()).toBeLessThanOrEqual(Date.now())
+  })
+})

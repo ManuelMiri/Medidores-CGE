@@ -42,6 +42,19 @@ router.post('/:instalacion/fotos', proteger, upload.single('foto'), async (req, 
     const medidor = await Medidor.findOne(filtro)
     if (!medidor) return res.status(404).json({ error: 'Medidor no encontrado o sin acceso' })
 
+    // Reintento de una foto que ya llegó: la primera vez se guardó pero la
+    // respuesta se perdió en el camino (señal mala). Se contesta como si se
+    // hubiera subido, sin pagarle otra subida a Cloudinary ni duplicarla.
+    const idLocal = typeof req.body.idLocal === 'string' ? req.body.idLocal.trim().slice(0, 80) : ''
+    if (idLocal && medidor.fotos.some((f) => f.idLocal === idLocal)) {
+      return res.status(200).json(medidor)
+    }
+
+    // La hora en que se sacó, que puede ser bastante antes de que llegue.
+    // Una fecha futura o inválida se ignora.
+    const tomada = new Date(req.body.fecha)
+    const fecha = Number.isNaN(tomada.getTime()) || tomada > new Date() ? new Date() : tomada
+
     const resultado = await subirImagen(req.file.buffer)
 
     medidor.fotos.push({
@@ -49,6 +62,8 @@ router.post('/:instalacion/fotos', proteger, upload.single('foto'), async (req, 
       nombre: nombre.trim(),
       coordenadas: { lat: latNum, lng: lngNum },
       subidoPor: req.usuario._id,
+      fecha,
+      ...(idLocal ? { idLocal } : {}),
     })
     medidor.historial.push({
       usuario: req.usuario._id,

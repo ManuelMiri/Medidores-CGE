@@ -10,9 +10,13 @@ import CapturaFoto from '../components/CapturaFoto'
 import GestionUsuarios from '../components/GestionUsuarios'
 import MiUbicacion from '../components/MiUbicacion'
 import PanelToes from '../components/PanelToes'
+import NotasUl from '../components/NotasUl'
 import CapaMedidores from '../components/CapaMedidores'
 import { useToes } from '../hooks/useToes'
 import { useMarcasToes } from '../hooks/useMarcasToes'
+import { useCambiosToes, useAltasToes } from '../hooks/useEnviosToes'
+import { useNotasUl } from '../hooks/useNotasUl'
+import { useColaFotos } from '../hooks/useColaFotos'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
@@ -576,6 +580,22 @@ export default function Mapa() {
   // — que puede ser otra persona y otro teléfono.
   useMarcasToes(medidores, toes.indice, toes.config, cargarMedidores)
 
+  // Un medidor cambiado en terreno: serie y marca nuevas a la base, para que
+  // el próximo lector no busque uno que ya no está.
+  useCambiosToes(medidores, toes.cambiosMedidor, cargarMedidores)
+
+  // Un servicio tomado en TOES que no tenía pin: se crea con el GPS del lector
+  // al guardar. Devuelve las ULs donde se frenó por faltar demasiados.
+  const ulsSinAltas = useAltasToes(medidores, toes.porUl, ulsActivas, cargarMedidores)
+
+  // Notas de las ULs marcadas, y de cuál se está viendo la lista.
+  const notasUl = useNotasUl(ulsActivas)
+  const [notasAbiertas, setNotasAbiertas] = useState(null)
+
+  // Fotos guardadas en el teléfono que esperan señal; al subir, se recargan
+  // los medidores para que aparezcan en su popup.
+  const colaFotos = useColaFotos(cargarMedidores)
+
   function toggleUl(ul) {
     setUlsActivas(prev =>
       prev.includes(ul) ? prev.filter(u => u !== ul) : [...prev, ul]
@@ -880,6 +900,16 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               UL sin marcar no están cargados, así que no se sabe
               qué cuadros bajar. Y solo en el APK, que es donde
               tiene sentido salir a terreno sin señal. */}
+          {/* Notas de la ruta (la clave de un portón, por ejemplo). El
+              número se ve aunque esté cerrado, para que una nota no pase
+              de largo. Solo en las marcadas: son las que se trabajan. */}
+          {ulsActivas.includes(ul) && (
+            <button className="btn btn-sm p-0 px-1" title="Notas de esta ruta"
+              onClick={() => setNotasAbiertas((a) => (a === ul ? null : ul))}
+              style={{ fontSize: '0.85rem', fontWeight: notasUl.porUl[ul]?.notas?.length ? 700 : 400 }}>
+              📝{notasUl.porUl[ul]?.notas?.length ? notasUl.porUl[ul].notas.length : ''}
+            </button>
+          )}
           {puedePrecargar && ulsActivas.includes(ul) && (
             <button className="btn btn-sm p-0 px-1" title="Descargar el mapa de esta ruta (usar con wifi)"
               onClick={() => descargarMapaDeRuta(ul)}
@@ -904,6 +934,11 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             </button>
           )}
         </div>
+
+        {notasAbiertas === ul && ulsActivas.includes(ul) && (
+          <NotasUl ul={ul} datos={notasUl.porUl[ul]} usuario={usuario}
+            onAgregar={notasUl.agregar} onCambiar={notasUl.cambiar} />
+        )}
 
         {precarga?.ul === ul && (
           <div
@@ -1020,6 +1055,31 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             </div>
 
             <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
+            {colaFotos.pendientes.length > 0 && (
+              <div style={{
+                margin: '0 0.75rem 0.5rem', padding: '0.4rem 0.5rem', borderRadius: 6,
+                background: '#fffaf0', border: '1px solid #f6ad55', fontSize: '0.78rem',
+              }}>
+                <div>⏳ <strong>{colaFotos.pendientes.length}</strong> foto{colaFotos.pendientes.length > 1 ? 's' : ''} esperando
+                  señal. Se suben solas; no cierres sesión ni borres los datos de la app.</div>
+                {colaFotos.pendientes.some((f) => f.error && !f.errorPasajero) && (
+                  <div style={{ color: '#c05621', marginTop: '0.2rem' }}>
+                    {colaFotos.pendientes.filter((f) => f.error && !f.errorPasajero)
+                      .map((f) => `${f.instalacion}: ${f.error}`).join(' · ')}
+                  </div>
+                )}
+                <button className="btn btn-outline-warning btn-sm w-100 mt-1 py-0"
+                  onClick={colaFotos.reintentar} disabled={colaFotos.subiendo}>
+                  {colaFotos.subiendo ? 'Subiendo…' : 'Reintentar ahora'}
+                </button>
+              </div>
+            )}
+            {ulsSinAltas.length > 0 && (
+              <p style={{ fontSize: '0.72rem', color: '#975a16', margin: '0 0.75rem 0.5rem' }}>
+                ⚠️ En {ulsSinAltas.join(', ')} hay demasiados servicios tomados sin pin; no se
+                crearon solos por si la lista de medidores vino incompleta.
+              </p>
+            )}
 
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
               <p style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#2b6cb0', margin: '0 0 0.5rem' }}>

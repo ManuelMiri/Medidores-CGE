@@ -78,6 +78,21 @@ export async function guardarCierres(cierres) {
   try { await escribir('cierres', cierres) } catch { /* ver nota arriba */ }
 }
 
+// Cambios de medidor leídos del log: [{ instalacion, serie, marca, serieAnterior, ciclo, fecha }].
+// Se guardan para no depender del cursor: si el bloque ya quedó atrás, igual
+// hay que poder mandarlo cuando vuelva la señal o se cargue esa UL.
+export async function cargarCambios() {
+  try {
+    return (await leer('cambiosMedidor')) ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function guardarCambios(cambios) {
+  try { await escribir('cambiosMedidor', cambios) } catch { /* ver nota arriba */ }
+}
+
 // Progreso por archivo: { [nombre]: { tamano, cursor, unidadOffset, completo } }
 //
 // `unidadOffset` se guarda junto al cursor a propósito. Si cambia la forma de

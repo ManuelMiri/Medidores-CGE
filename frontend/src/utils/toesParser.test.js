@@ -13,10 +13,12 @@ import {
   estadoDeUL,
   cierreDeCiclo,
   llave,
+  acumularCambios,
 } from './toesParser.js'
 import {
   bloqueServicio,
   bloqueSincronizacion,
+  bloqueCambioMedidor,
   lineaCierre,
   lineaRuido,
   cabecera,
@@ -299,6 +301,73 @@ describe('estado y ciclos', () => {
 
 // Contraste contra un log real. Se salta solo si no se pasa la variable,
 // asi el log con datos de clientes nunca necesita estar en el repo.
+describe('GPS del lector y marca del medidor', () => {
+  test('lee el GPS (X = latitud) y la marca', () => {
+    const { eventos } = parsearLog(bloqueServicio({ gps: { lat: '-35.4246', lng: '-71.6554' }, marcaMedidor: 'ENERTEC' }))
+    assert.deepEqual(eventos[0].gps, { lat: -35.4246, lng: -71.6554 })
+    assert.equal(eventos[0].marca, 'ENERTEC')
+  })
+
+  test('un GPS vacío, en 0,0 o fuera de Chile no se usa', () => {
+    for (const gps of [null, { lat: '0', lng: '0' }, { lat: '40.4', lng: '-3.7' }, { lat: '', lng: '' }]) {
+      assert.equal(parsearLog(bloqueServicio({ gps })).eventos[0].gps, null)
+    }
+  })
+
+  test('sigue sin copiar la lectura ni la dirección', () => {
+    const { eventos } = parsearLog(bloqueServicio({ lectura: '98765', calle: 'LOS AROMOS' }))
+    const texto = JSON.stringify(eventos)
+    assert.ok(!texto.includes('98765'))
+    assert.ok(!texto.includes('AROMOS'))
+  })
+})
+
+describe('cambio de medidor', () => {
+  // Así queda en el log real (E713709426, 2026-10-14): primero el backup de la
+  // orden con clave 10 y el medidor VIEJO en GERAET, después el bloque
+  // /CambioMedidor con la serie y la marca nuevas.
+  const log = () =>
+    bloqueServicio({ instalacion: 'Z1', medidor: 'VIEJO-1', clave: '10', lectura: '' }) +
+    bloqueCambioMedidor({ instalacion: 'Z1', serie: 'NUEVO-1', marca: 'ENERTEC' })
+
+  test('saca serie, marca, UL, ciclo y fecha del bloque /CambioMedidor', () => {
+    const { cambiosMedidor } = parsearLog(log())
+    assert.deepEqual(cambiosMedidor, [{
+      unidad: 'E9999999', ciclo: '2026-10-06', instalacion: 'Z1',
+      serie: 'NUEVO-1', marca: 'ENERTEC', fecha: '2026-10-06T19:53:21.920Z',
+    }])
+  })
+
+  test('no copia la lectura del medidor nuevo', () => {
+    const { cambiosMedidor } = parsearLog(bloqueCambioMedidor({ lectura: '98765' }))
+    assert.ok(!JSON.stringify(cambiosMedidor).includes('98765'))
+  })
+
+  test('el backup de la clave 10 sigue contando como un evento normal', () => {
+    const { eventos } = parsearLog(log())
+    assert.equal(eventos.length, 1)
+    assert.equal(eventos[0].clave, '10')
+  })
+
+  test('no mueve el cursor: un bloque incompleto se lee la próxima vez', () => {
+    const completo = log()
+    // TOES todavía está escribiendo el bloque: se corta dentro del JSON.
+    const cortado = completo.slice(0, completo.indexOf('"method": "create"'))
+    const r = parsearLog(cortado)
+    assert.deepEqual(r.cambiosMedidor, [])
+    assert.equal(parsearLog(completo.slice(r.consumido)).cambiosMedidor.length, 1)
+  })
+
+  test('acumularCambios no repite y toma la serie anterior del estado', () => {
+    const r = parsearLog(log())
+    const estado = estadoPorInstalacion(r.eventos)
+    const una = acumularCambios([], r.cambiosMedidor, estado)
+    const dos = acumularCambios(una, r.cambiosMedidor, estado)
+    assert.equal(dos.length, 1)
+    assert.equal(dos[0].serieAnterior, 'VIEJO-1')
+  })
+})
+
 describe('log real (opcional)', () => {
   const ruta = process.env.TOES_LOG_REAL
   test('reproduce los numeros medidos del log real', { skip: !ruta }, () => {

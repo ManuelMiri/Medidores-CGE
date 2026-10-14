@@ -43,7 +43,13 @@ const fotoSchema = new mongoose.Schema(
       lng: { type: Number, required: true },
     },
     subidoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario' },
+    // Cuándo se sacó, no cuándo llegó: sin señal la foto espera en el
+    // teléfono y puede subir horas después.
     fecha: { type: Date, default: Date.now },
+    // Id que pone el teléfono al sacarla. Si la subida llegó pero la
+    // respuesta se perdió por la señal, el reintento manda el mismo id y el
+    // servidor no la guarda dos veces.
+    idLocal: { type: String, trim: true, default: undefined },
   },
   { _id: false }
 )
@@ -112,6 +118,25 @@ const medidorLupaSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// El último cambio de medidor que registró TOES (clave 10 + bloque
+// /CambioMedidor del log). La serie y la marca nuevas pasan a numeroDeSerie y
+// marca (o a medidorLupa, si el que se cambió era el lupa); acá queda cuál era
+// el anterior, para que el lector que llegue al punto no busque un medidor que
+// ya no está. Los cambios previos quedan en el historial.
+const cambioMedidorSchema = new mongoose.Schema(
+  {
+    cual:          { type: String, enum: ['principal', 'lupa'], default: 'principal' },
+    serieAnterior: { type: String, trim: true, default: null },
+    marcaAnterior: { type: String, trim: true, default: null },
+    serieNueva:    { type: String, trim: true, required: true },
+    marcaNueva:    { type: String, trim: true, default: null },
+    ciclo:         { type: String, trim: true, default: null },
+    fecha:         { type: Date, default: Date.now },
+    registradoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', default: null },
+  },
+  { _id: false }
+)
+
 const medidorSchema = new mongoose.Schema(
   {
     instalacion: {
@@ -149,7 +174,25 @@ const medidorSchema = new mongoose.Schema(
       type: medidorLupaSchema,
       default: undefined,
     },
-    fotos:             { type: [fotoSchema], default: [] },
+    cambioMedidor: {
+      type: cambioMedidorSchema,
+      default: undefined,
+    },
+    // Pin creado solo por la app: el servicio se tomó en TOES y no estaba en
+    // el mapa. La posición es el GPS del lector al guardar la lectura (a 8 m
+    // del medidor en la mitad de los casos, a menos de 30 m en el 90 %), así
+    // que el popup lo avisa para que alguien lo afine con "Mover un pin".
+    desdeToes: {
+      type: new mongoose.Schema(
+        {
+          ciclo: { type: String, trim: true, default: null },
+          fechaLectura: { type: Date, default: null },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    fotos:           { type: [fotoSchema], default: [] },
     observaciones:     { type: String, trim: true, default: null },
     localizadoPor:     { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', default: null },
     fechaLocalizacion: { type: Date, default: null },
