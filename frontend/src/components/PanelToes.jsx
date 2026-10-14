@@ -4,6 +4,8 @@
 
 import { useRef, useState } from 'react'
 import { esRepaso } from '../utils/vistaMarcador'
+import { armarReporte } from '../utils/reporteRuta'
+import ReporteRuta from './ReporteRuta'
 
 function formatearCiclo(ciclo) {
   if (!ciclo) return null
@@ -23,6 +25,8 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
   const archivoRef = useRef(null)
   const [aviso, setAviso] = useState(null)
   const [mostrarSinPunto, setMostrarSinPunto] = useState(false)
+  // UL cuyo reporte está abierto (popup), o null.
+  const [reporteDe, setReporteDe] = useState(null)
 
   const {
     porUl, indice, verTomados, setVerTomados, procesando, invalidos, ultimaRevision,
@@ -179,18 +183,26 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
                       width: pct + '%', height: '100%', background: '#38a169', borderRadius: '3px',
                     }} />
                   </div>
-                  <button
-                    className="btn btn-sm btn-outline-secondary w-100 mt-1"
-                    style={{ fontSize: '0.7rem', padding: '0.1rem' }}
-                    onClick={() => {
-                      if (confirm(
-                        `¿Marcar ciclo nuevo en ${ul}?\n\n` +
-                        'Los puntos tomados vuelven a aparecer como pendientes. ' +
-                        'No se borra ningún punto, foto ni etiqueta.'
-                      )) toes.nuevoCiclo(ul)
-                    }}>
-                    Nuevo ciclo
-                  </button>
+                  <div className="d-flex gap-1 mt-1">
+                    <button
+                      className="btn btn-sm btn-outline-primary"
+                      style={{ fontSize: '0.7rem', padding: '0.1rem', flex: 1 }}
+                      onClick={() => setReporteDe(ul)}>
+                      📊 Reporte
+                    </button>
+                    <button
+                      className="btn btn-sm btn-outline-secondary"
+                      style={{ fontSize: '0.7rem', padding: '0.1rem', flex: 1 }}
+                      onClick={() => {
+                        if (confirm(
+                          `¿Marcar ciclo nuevo en ${ul}?\n\n` +
+                          'Los puntos tomados vuelven a aparecer como pendientes. ' +
+                          'No se borra ningún punto, foto ni etiqueta.'
+                        )) toes.nuevoCiclo(ul)
+                      }}>
+                      Nuevo ciclo
+                    </button>
+                  </div>
                 </div>
               )
             })}
@@ -246,6 +258,12 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
                 </div>
               )}
             </div>
+          )}
+
+          {reporteDe && (
+            <ReporteRuta
+              reporte={armarReporte({ ul: reporteDe, datos: porUl[reporteDe], medidores, config: toes.config })}
+              onCerrar={() => setReporteDe(null)} />
           )}
 
           <p style={{ fontSize: '0.7rem', color: '#718096', margin: '0.4rem 0 0' }}>
