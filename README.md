@@ -10,10 +10,23 @@ El backend además fue usado como base para el encargo de la Unidad 2 del ramo P
 |---|---|---|
 | Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción |
 | Frontend web / PWA | Vercel (`https://medidores-cge.vercel.app`) | En producción |
-| APK Android (Capacitor) | `frontend/android/`, sideload interno | Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
+| APK Android (Capacitor) | `frontend/android/`, sideload interno | Versión **2.3 (5)**. Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
 | Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Completa: parser, visibilidad del mapa y lectura automática de `/TOES` en el APK |
 
-Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end.
+Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end (en los tests del backend sí, y el último hueco conocido, `GET /medidores?ul=` con una UL ajena, ya está cerrado).
+
+### Lo que trae la 2.3 (octubre 2026)
+
+Salió de una jornada de terreno con rutas nuevas:
+
+- **Mover un pin** (admin y supervisor): ✏️ Editar → "Cambiar ubicación en el mapa", tocando el mapa o con "Usar mi GPS". Antes la única forma de corregir un punto mal ubicado por la ruta importada era borrarlo y crearlo de nuevo, perdiendo historial y fotos. La posición anterior queda en el historial.
+- **"Solo casas cerradas"** en el panel de TOES: deja en el mapa solo lo tomado con una variante de casa cerrada (claves 01, 08, 09 y 30) para el repaso al final de la ruta. Mientras está prendido, el mapa muestra un aviso con "Ver todo".
+- **"🚗 Ir"** en el popup: abre Google Maps con la ruta hasta el medidor.
+- **"◎" centrar en mí**: vuelve a la posición del lector y prende el punto azul si estaba apagado.
+- **Hasta 1500 medidores por ruta** en el mapa (antes 500; las rutas más largas tienen ~1000).
+- **Medidor lupa** en el popup (ver "Importación de rutas").
+
+Y en el backend, que les sirve también a los APK viejos: rutas grandes al importar, instalaciones repetidas en el archivo, el medidor lupa y el control de ULs del lector.
 
 ## Stack
 
@@ -51,7 +64,7 @@ backend/
 ├── data/
 │   ├── medidores.json
 │   └── seed.js             # OJO: hace Medidor.deleteMany({}) — no correr contra Atlas de producción
-└── tests/                  # 5 suites, 50 tests
+└── tests/                  # 8 suites, 99 tests
 
 frontend/
 ├── capacitor.config.json   # appId cl.mla.maule, webDir dist, androidScheme https
@@ -64,7 +77,7 @@ frontend/
 │       ├── MainActivity.java      # registra el plugin de TOES
 │       └── toes/ToesPlugin.java   # lee /TOES por SAF, solo lectura
 └── src/
-    ├── pages/Mapa.jsx      # el mapa; ~785 líneas, es el archivo central del frontend
+    ├── pages/Mapa.jsx      # el mapa; ~1400 líneas, es el archivo central del frontend
     ├── pages/Login.jsx
     ├── components/
     │   ├── PanelToes.jsx       # bloque "Lecturas de TOES" del panel lateral
@@ -81,6 +94,7 @@ frontend/
     │   ├── vistaMarcador.js    # decide ocultar/atenuar/colorear cada marcador
     │   ├── agrupar.js          # junta los medidores del mismo punto (+ 9 tests)
     │   ├── iconosMapa.js       # los pines, bundleados (no traidos de la red)
+    │   ├── navegacion.js       # URL de Google Maps del botón "Ir" (+ tests)
     │   └── __fixtures__/logSintetico.js  # generador de logs falsos para los tests
     ├── config/clavesToes.json  # configuración editable de la integración
     ├── context/AuthContext.jsx
@@ -135,6 +149,7 @@ Hecho (lo que no dice "APK" se puede verificar en el navegador):
 - Parser, almacén en IndexedDB, hook, panel lateral y lógica de visibilidad del mapa.
 - Carga manual de logs con `<input type="file" multiple>` (los archivos se ordenan por nombre, que es orden cronológico).
 - Contador tomados/total por UL con barra de progreso, ciclo vigente, insignia CERRADA / cierre parcial, botón "Nuevo ciclo" (con confirmación), interruptor "Ver tomados" (atenuados) y la lista de tomados sin punto en el mapa.
+- Interruptor **"Solo casas cerradas (N)"** para el repaso: muestra solo lo tomado con una clave de `clavesRepaso` en `clavesToes.json` (01, 08, 09, 30), en firme y sin marcas permanentes. No se recuerda entre sesiones a propósito. Como el interruptor vive en un bloque del panel que se esconde si ninguna UL marcada tiene lecturas, el mapa muestra además un aviso con "Ver todo": ya pasó que quedó prendido, se marcó una ruta recién importada y el mapa salió vacío sin explicación.
 - **Nunca se borra** un punto, una foto, una descripción ni una etiqueta: solo cambia la visibilidad.
 - **Lectura automática de `/TOES` en el APK** por el Storage Access Framework. El lector elige la carpeta una sola vez y desde ahí la app la relee sola cada 5 s, sin volver a pedir nada. Ver "Lectura automática de /TOES" más abajo.
 - **Los pines van agrupados por punto** (`agruparCercanos`, 5 m), así que la decisión es por grupo y no por medidor: el pin se oculta solo cuando no queda ningún servicio por visitar, el contador cuenta los que quedan (no los que hay), y se atenúa solo si todo lo que queda en ese pin ya fue tomado. Un medidor elegido a propósito — tocado o buscado — se muestra aunque TOES lo haya tomado; sin esa excepción, buscar una instalación ya tomada no mostraría nada y el buscador parecería roto.
@@ -144,6 +159,7 @@ Pendiente:
 - **Probar los 2 últimos criterios de aceptación en el teléfono.** El código de los 11 está escrito y compilado, pero el permiso persistente de `/TOES` y el "el punto desaparece en 5-10 s" solo se pueden dar por buenos con TOES real guardando un servicio. Todo lo demás está cubierto por tests.
 - **Etiquetas anticipadas** (sitio eriazo / sin empalme / no encontrado) para avisarle al lector qué clave elegir en TOES. Es la única parte que sí toca el backend, porque las etiquetas son datos propios de la app y se comparten entre usuarios: campo `etiquetas: [String]` en `models/Medidor.js` y en la whitelist `camposPermitidos` de `rutas/medidores.js`. **Nunca cambiar etiquetas automáticamente.**
 - **Una sola etiqueta anticipada sigue sin clave que sugerir.** "Sitio eriazo" y "No encontrado" ya apuntan a las claves 26 y 02. "Sin empalme" no: la clave 16 existe pero está inactiva, así que hasta que CGE diga con cuál se reemplaza, esa etiqueta no sugiere ninguna.
+- **El submenú de la clave 05 ("Problema en medidor – Sin lectura").** "Sin empalme" y "Mica quemada" se eligen ahí, y `METERREADINGNOTE` solo trae `05`. Revisados los 55 logs de un teléfono, el único campo que cambia es **`COD_ESTADO_MED`**: viene `null` en todos los bloques salvo en los de clave 05, donde trae `"4"` o `"6"`. Falta saber qué opción es cada código; para eso hay que anotar la instalación o la hora la próxima vez que se marque una en terreno. Con esa tabla, "sin empalme" puede pasar a proponerse desde TOES.
 - **Crear una cuenta `lector`** con `unidadesLectura: ["E3505704"]` para probar el camino de permisos real.
 
 ### Lectura automática de /TOES
@@ -454,7 +470,8 @@ borrosa pero usable por un cuadro gris en un sector sin cobertura, justo en los 
 - `proteger` (en `middleware/auth.js`) verifica el token en cada ruta protegida y revisa que no esté en la lista negra (colección `TokenInvalido`, con índice TTL para que los expirados se limpien solos).
 - `soloRol('rol1', 'rol2', ...)` restringe según el rol: `lector`, `supervisor` o `admin`.
 - El logout invalida el token agregándolo a la lista negra, así un token robado deja de servir aunque no haya expirado.
-- Un `lector` solo ve y modifica medidores de las ULs que tiene en `unidadesLectura`; el resto ve todas.
+- Un `lector` solo ve y modifica medidores de las ULs que tiene en `unidadesLectura`; el resto ve todas. Eso incluye `GET /api/medidores?ul=`: hasta octubre de 2026 el parámetro `ul` pasaba directo al filtro y un lector podía leer cualquier ruta con solo nombrarla. Ahora una UL ajena devuelve una lista vacía y no un 403, porque la app pide todas las ULs marcadas a la vez y un error en una tumbaría la carga de las demás.
+- **Mover un pin** es solo de `admin` y `supervisor`, por su propia ruta. El `PATCH` general ya no acepta `ubicacion`.
 
 Antes había dos formas distintas de verificar el token: una función local `verificarToken` en `rutas/auth.js` y el middleware `proteger`. Se unificó para usar `proteger` en ambos módulos, evitando que un fix de seguridad (como la lista negra) quedara aplicado en un solo lugar.
 
@@ -478,13 +495,29 @@ Antes había dos formas distintas de verificar el token: una función local `ver
 | GET | `/api/medidores/uls` | autenticado | Unidades de lectura (un `lector` solo ve las suyas; con caché) |
 | GET | `/api/medidores/:instalacion` | autenticado | Detalle de un medidor |
 | POST | `/api/medidores` | autenticado | Crea un medidor (`lector` solo en sus ULs) |
-| PATCH | `/api/medidores/:instalacion` | autenticado | Actualiza un medidor (`lector` solo en sus ULs) |
+| PATCH | `/api/medidores/:instalacion` | autenticado | Actualiza un medidor (`lector` solo en sus ULs). No acepta `ubicacion` |
+| PATCH | `/api/medidores/:instalacion/ubicacion` | **admin**, supervisor | Mueve el pin (`lat`, `lng`); la posición anterior queda en el historial |
+| POST | `/api/medidores/:instalacion/marca` | autenticado | Propone una marca permanente (`lector` solo en sus ULs) |
+| PATCH | `/api/medidores/:instalacion/marca` | **admin**, supervisor | Confirma o rechaza la marca |
+| DELETE | `/api/medidores/:instalacion/marca` | autenticado | Quita la marca |
 | DELETE | `/api/medidores/:instalacion` | **admin** | Elimina un medidor |
 | POST | `/api/medidores/:instalacion/fotos` | autenticado | Sube una foto a Cloudinary (con coordenadas) |
-| POST | `/api/importacion/preview` | **admin** | Parsea un `.kml`/`.xlsx` y devuelve lo que falta, sin escribir |
-| POST | `/api/importacion/confirmar` | **admin** | Inserta los medidores del preview |
+| POST | `/api/importacion/preview` | **admin** | Parsea un `.kml`/`.xlsx` y devuelve lo que falta, sin escribir. Informa repetidos y lupas |
+| POST | `/api/importacion/confirmar` | **admin** | Inserta los medidores del preview y agrega los lupas que falten (`lupas`, opcional) |
 | GET | `/api/rutas/:ul/exportar` | **admin**, supervisor | Exporta una UL completa |
 | DELETE | `/api/rutas/:ul` | **admin** | Borra todos los medidores de una UL |
+
+## Importación de rutas
+
+El admin sube el archivo de la ruta (el KML de Google My Maps o el Excel de SAP), el backend lo parsea y devuelve una **vista previa** sin escribir nada; recién al confirmar se crean los medidores. Los que ya existen **nunca se sobreescriben**: pueden tener estado, fotos o historial de terreno.
+
+- **El formato se decide por el contenido, no por el nombre.** Android guarda un KML descargado como `ruta.kml.xml`, y eso antes se rechazaba.
+- **Las instalaciones son texto**: numéricas o con letra según la zona (`103613434`, `E714171252`, `G3534036`). Nada asume que sean números; el buscador compara el final como texto.
+- **Rutas grandes.** `/confirmar` recibe la ruta entera, unos 340 bytes por medidor. El límite por defecto de `express.json()` es 100 KB, y una ruta de 515 medidores (176 KB) daba **413 en HTML**, que la app solo podía mostrar como "Error al importar". El límite ahora es 10 MB. Si el servidor no explica un error, la app muestra el código HTTP.
+- **Instalaciones repetidas dentro del archivo.** La instalación es única en la base, pero el archivo de origen puede traerla varias veces (la G3509004 trae 231 filas y 226 instalaciones). Antes `insertMany` cortaba con `E11000` y dejaba la ruta a medias. Ahora preview y confirmar dejan una fila por instalación, la primera, y el preview avisa cuántas venían repetidas.
+- **Medidor lupa.** Algunos servicios tienen un segundo medidor en el poste para comparar con el de la casa y detectar hurto o falla. En el archivo viene como otra fila con la **misma instalación y otra serie**. Se guarda en `medidorLupa` (`numeroDeSerie`, `marca`), un campo opcional, y el popup lo muestra. La coordenada es la de la casa. A un medidor que ya existía sin lupa, la importación se lo puede **agregar** (`lupasNuevas` en el preview, `lupas` en confirmar), pero nunca pisa uno ya guardado.
+
+Los campos nuevos de la respuesta (`totalFilas`, `repetidos`, `lupasNuevas`) son opcionales: un APK viejo los ignora y sigue funcionando.
 
 ## Arquitectura del backend
 
@@ -507,14 +540,14 @@ El modelo `Medidor` mantiene **un solo índice**: `{ unidadDeLectura: 1 }`, que 
 
 ## Pruebas
 
-**Backend — 50 tests en 5 suites, todos pasando.** Jest + Supertest + `mongodb-memory-server`: los tests levantan un MongoDB en memoria, así que corren en cualquier máquina sin configurar nada y sin tocar el Atlas real. Cubren auth (registro, login, logout, token invalidado rechazado), CRUD de medidores con autorización por roles, fotos, importación y rutas.
+**Backend — 99 tests en 8 suites, todos pasando.** Jest + Supertest + `mongodb-memory-server`: los tests levantan un MongoDB en memoria, así que corren en cualquier máquina sin configurar nada y sin tocar el Atlas real. Cubren auth (registro, login, logout, token invalidado rechazado), CRUD de medidores con autorización por roles (incluido que un lector no lea una UL ajena), mover un pin, marca permanente, fotos, la caché de ULs con un cluster real, rutas e importación (rutas grandes, instalaciones repetidas y medidor lupa).
 
 ```bash
 cd backend
 npm test
 ```
 
-**Frontend — 103 tests** (102 pasan, 1 se omite): 25 del parser de TOES, 27 del cursor de lectura incremental, 20 de la visibilidad de los pines, 16 de qué claves proponen marca permanente, 9 del agrupado por punto y 6 de qué ULs se restauran al abrir. Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 142 tests** (141 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, el agrupado por punto, qué ULs se restauran al abrir, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
@@ -600,7 +633,12 @@ Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/
 **Antes de repartir un APK, subir la versión** en `android/app/build.gradle` (`versionCode` y
 `versionName`). No hay Play Store ni actualización automática, así que la única forma de saber qué
 build tiene un teléfono es preguntársela — y para eso tiene que cambiar. El `versionName` sale en el
-pie del panel lateral, así que se lee sin entrar a los ajustes de Android.
+pie del panel lateral, así que se lee sin entrar a los ajustes de Android. La repartida hoy es la
+**2.3 (code 5)**; conviene copiar el APK con un nombre que la diga (`MLA-Maule-2.3.apk`), porque
+`app-debug.apk` se sobreescribe en cada build.
+
+Todavía es un build de **debug**: funciona igual, pero permite inspeccionar la app por cable. Firmar
+para release sigue pendiente.
 
 **Si el teléfono ya tuvo un APK compilado en otra máquina**, la instalación falla con
 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: cada PC firma los builds de debug con su propia llave. Hay que
@@ -627,11 +665,11 @@ La distribución es por **sideload interno**, no Play Store. Conviene agregar un
 ## Convenciones para quien trabaje en este repo
 
 - **Fin de línea:** los archivos antiguos son **CRLF**; los módulos nuevos de TOES son LF. Al editar con scripts, respetar el que ya tiene el archivo o el diff sale entero.
-- **Estilo del frontend:** sin punto y coma, comillas simples, comentarios explicativos en español que dicen *por qué*, no *qué*. `npm run lint` (oxlint) tiene 4 avisos preexistentes.
+- **Estilo del frontend:** sin punto y coma, comillas simples, comentarios explicativos en español que dicen *por qué*, no *qué*. `npm run lint` (oxlint) tiene 3 avisos preexistentes.
 - **Nunca commitear logs reales de TOES.** Para los tests existe el fixture sintético.
 - **No subir el contenido del log a ningún servidor.** Si aparece la tentación de un endpoint para "sincronizar lecturas", es exactamente lo que la regla de privacidad prohíbe.
 - **No raspar tiles de Google** (`mt{s}.google.com/vt/`): viola los términos de Google Maps. El mapa usa OpenStreetMap y satelital de Esri.
-- El archivo central del frontend es `src/pages/Mapa.jsx` (~785 líneas): ahí viven el mapa y el panel lateral. **El render de los pines ya no está ahí**, está en `components/CapaMedidores.jsx` por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
+- El archivo central del frontend es `src/pages/Mapa.jsx` (~1400 líneas): ahí viven el mapa, el panel lateral y los botones flotantes (centrar en mí, avisos de mover y de repaso). **El render de los pines ya no está ahí**, está en `components/CapaMedidores.jsx` por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
 
 ## Decisiones de diseño (resumen)
 

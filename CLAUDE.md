@@ -271,6 +271,10 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 - **El repo trabaja en Windows con `core.autocrlf=true`.** El README y CLAUDE.md son CRLF: al
   editarlos con scripts hay que normalizar y devolverlos a CRLF, o quedan con finales mezclados.
   `gradlew` está fijado a LF en `.gitattributes` porque con CRLF no arranca en macOS ni Linux.
+  **`sed -i` de Git Bash le saca los CR a todo el archivo**, y un `sed 's/$/\r/'` para devolverlos deja
+  un `\r` suelto al final: git pasa a tratar el archivo como binario (`git ls-files --eol` dice
+  `-text`) y el diff sale entero. Ya pasó con `Mapa.jsx`. Para editar, usar el editor y no `sed -i`;
+  para revisar, `git ls-files --eol <archivo>` tiene que decir `i/lf w/crlf`.
 - **Capacitor escribía en logcat el texto completo del log de TOES**, con datos de clientes, porque
   registra el resultado de cada llamada a un plugin. Ya está cerrado con `"loggingBehavior": "none"`
   en `capacitor.config.json`; si alguien lo vuelve a prender para depurar, que no quede así.
@@ -282,12 +286,16 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-Al 2026-10-13 (tarde), `main`, `Develop` y `terreno-oct` están en el mismo commit y producción
-(Railway y Vercel) tiene todo: TOES, la marca permanente, MapLibre, el buscador por UL, el panel
-desplegable, y de la rama `terreno-oct`: rutas grandes en `/importacion/confirmar` (límite 10 MB),
-mover un pin, "Solo casas cerradas", "Ir" y "centrar en mí". El APK repartido sigue siendo la
-**2.2 (code 4)**: lo de terreno-oct que es solo de frontend no les llega a los otros teléfonos hasta
-repartir uno nuevo (la PWA y el backend sí).
+Al 2026-10-13 (noche), `main` y `Develop` están en `0095ec9` y producción (Railway y Vercel) tiene
+todo: TOES, la marca permanente, MapLibre, el buscador por UL, el panel desplegable, y de la rama
+`terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir", "centrar en mí",
+hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB), instalaciones repetidas en el
+archivo, medidor lupa y el control de ULs del lector en `GET /medidores?ul=`. Verificado en el
+teléfono en los dos motores.
+
+El APK a repartir es la **2.3 (code 5)**, build de debug, copiada como `MLA-Maule-2.3.apk` en
+`frontend/android/app/build/outputs/apk/debug/`. Lo de solo frontend no llega a los teléfonos que
+sigan con la 2.2; lo del backend sí.
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
@@ -297,12 +305,17 @@ Pendiente:
 - **Rotar las credenciales de Atlas y Cloudinary**: quedaron expuestas en una sesión anterior.
 - Sacar Leaflet cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
-  producción; en los tests del backend sí).
+  producción; en los tests del backend sí). El último hueco conocido (`?ul=` ajena) ya está cerrado.
 - **Submenú de la clave 05 ("Sin empalme", "Mica quemada"…).** Revisados los 55 logs del teléfono
   (2026-10-13): los únicos bloques con `COD_ESTADO_MED` distinto de `null` son los tres con clave 05
   (valores `"4"` y `"6"`), así que el submenú va ahí. Falta saber qué código es cada opción: el sábado
-  10-10 hubo un 05 con `"6"` (log de las 09:13) y otro con `"4"` (10:20); uno es la "Mica quemada".
-  Con la tabla de códigos, "sin empalme" puede pasar a proponerse desde TOES; hasta entonces, a mano.
+  10-10 hubo un 05 con `"6"` (guardado a las 10:12, UL E3508013) y otro con `"4"` (12:29, misma UL);
+  el usuario no recuerda cuál fue la "Mica quemada". La próxima vez que marque una en terreno va a
+  anotar la hora o la instalación: buscar ese bloque y armar la tabla. Con eso, "sin empalme" puede
+  pasar a proponerse desde TOES; hasta entonces, a mano.
+- **El medidor lupa en TOES:** no se sabe si TOES lo muestra como una lectura aparte del mismo
+  servicio (mismo `ANLAGE`, otro `GERAET`). Si es así, el índice por instalación de `useToes` los
+  juntaría. Revisar con un log real cuando toque uno.
 - Firmar el APK para release.
 - **Tiles vectoriales propios** (PMTiles de la Región del Maule). Quitaría la dependencia de OSM y
   Esri, que pueden cortar el acceso — ya pasó con CARTO.
