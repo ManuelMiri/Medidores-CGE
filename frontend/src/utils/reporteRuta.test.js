@@ -22,7 +22,8 @@ function escenario() {
     tomado('NUEVO'),
     tomado('SIN-PIN'),
   ])
-  return { ul: UL, datos: { ciclo: CICLO, tomados, cierre: { tipo: 'parcial' } }, medidores, config }
+  // "especial" es como lo escribe TOES ("Cierre Especial"): el cierre parcial.
+  return { ul: UL, datos: { ciclo: CICLO, tomados, cierre: { tipo: 'especial' } }, medidores, config }
 }
 
 describe('armarReporte', () => {
@@ -73,6 +74,14 @@ describe('textoReporte', () => {
     assert.match(texto, /• Medidor interior \(01\): 2/)
     assert.match(texto, /⚠️ Otras claves: \*1\*/)
     assert.match(texto, /🆕 Nuevos \(no venían en la ruta\): \*2\*/)
+  })
+
+  test('el cierre final dice "ruta cerrada"; sin cierre, "en curso"', () => {
+    const e = escenario()
+    e.datos.cierre = { tipo: 'final' }
+    assert.match(textoReporte(armarReporte(e)), /\(ruta cerrada\)/)
+    e.datos.cierre = null
+    assert.match(textoReporte(armarReporte(e)), /\(en curso\)/)
   })
 
   test('sin otras claves no muestra esa línea', () => {

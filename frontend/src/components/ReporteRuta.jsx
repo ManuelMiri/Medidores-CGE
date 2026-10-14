@@ -33,7 +33,8 @@ async function copiarTexto(texto, contenedor) {
   }
 }
 
-const COLOR_CIERRE = { final: '#c53030', parcial: '#dd6b20' }
+// Los mismos colores que la etiqueta del panel: rojo cerrada, naranjo parcial.
+const colorCierre = (cierre) => (cierre === 'final' ? '#c53030' : cierre ? '#dd6b20' : '#718096')
 
 function Fila({ icono, texto, n, fuerte = true, apagado = false }) {
   return (
@@ -86,7 +87,7 @@ export default function ReporteRuta({ reporte, onCerrar }) {
             </div>
             <div style={{ fontSize: '0.76rem', color: '#718096' }}>
               Ciclo {formatearCiclo(r.ciclo)} ·{' '}
-              <span style={{ color: COLOR_CIERRE[r.cierre] ?? '#718096', fontWeight: 600 }}>
+              <span style={{ color: colorCierre(r.cierre), fontWeight: 600 }}>
                 {textoCierre(r.cierre)}
               </span>
             </div>

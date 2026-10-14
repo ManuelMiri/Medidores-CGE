@@ -95,9 +95,11 @@ export function armarReporte({ ul, datos, medidores, config }) {
   }
 }
 
+// El tipo viene del log tal cual: "Cierre Especial" (cierre parcial, al
+// terminar un día de la ruta) o "Cierre Final". Mismo criterio que el panel.
 export function textoCierre(cierre) {
   if (cierre === 'final') return 'ruta cerrada'
-  if (cierre === 'parcial') return 'cierre parcial'
+  if (cierre) return 'cierre parcial'
   return 'en curso'
 }
 

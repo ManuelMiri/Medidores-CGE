@@ -122,7 +122,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 183 tests con node --test (1 se salta sin log real)
+npm test              # 184 tests con node --test (1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -346,6 +346,13 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   insiste. Pasó el 2026-10-14: el pin recién se creó al recargar. Reintentar cada 10 minutos lo
   evitaría; se ofreció y no está hecho.
 - **`git merge -F -` no lee el mensaje de stdin** (`git commit -F -` sí). Escribirlo a un archivo.
+- **Un `element.click()` desde `webviewCdp.mjs` no es un gesto del usuario**, así que copiar al
+  portapapeles falla (`writeText` y `execCommand` dan error) aunque con un dedo funcione. Para
+  probar algo que pide gesto, tocar con `Input.dispatchMouseEvent` (pressed + released) en el
+  centro del botón: pasa por el mismo camino que un toque real. Pasó con el Copiar del reporte.
+- **En un script `node -e`, un template literal se come las barras invertidas** (`\s` queda `s`,
+  `\n` queda salto de línea). Para editar código con regex o con `\n`, usar el editor y no
+  `node -e`. Ya rompió una regex sin que fallara nada.
 - **Si el parser empieza a sacar algo nuevo del log, subir `FORMATO_PARSER`** (`cursorToes.js`).
   Lo ya leído quedó guardado sin ese dato, y el cursor no vuelve atrás. Con el formato nuevo, cada
   log se relee una vez (es inofensivo: todo se deduplica).
@@ -363,6 +370,8 @@ Están explicadas en el README, pero conviene tenerlas presentes:
     lector confirmándola. **No tiene que ver con una devolución** (lo aclaró el usuario).
   - Dos "Backup" de la misma instalación al mismo segundo con distinto `ZWKENN` (AC/AR) son dos
     registros del mismo medidor, no una relectura.
+  - El cierre parcial TOES lo escribe **"Cierre Especial"** (`tipo: 'especial'` en el parser), no
+    "parcial". El reporte lo mostró como "en curso" por buscar la palabra equivocada.
 
 ## Estado y qué falta
 
