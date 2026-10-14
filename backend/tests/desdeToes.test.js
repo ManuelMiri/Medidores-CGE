@@ -24,11 +24,12 @@ const alta = (token, cuerpo) =>
 const cuerpo = (extra = {}) => ({
   instalacion: 'E714999999', ul: UL, lat: -35.4246, lng: -71.6554,
   serie: '95125738', marca: 'SCHLUMBERGER', ciclo: '2026-10-14', fecha: '2026-10-14T19:53:21.971Z',
+  direccion: 'LOS AROMOS S/N SECTOR UNO PUEBLO', poste: '6-015613',
   ...extra,
 })
 
 describe('POST /api/medidores/desde-toes', () => {
-  test('crea el pin con el GPS, la serie y la marca, y queda pendiente', async () => {
+  test('crea el pin con el GPS, la serie, la marca, la dirección y el poste, y queda pendiente', async () => {
     const { token } = await crearUsuarioYObtenerToken('admin')
 
     const res = await alta(token, cuerpo())
@@ -42,7 +43,8 @@ describe('POST /api/medidores/desde-toes', () => {
     expect(m.marca).toBe('SCHLUMBERGER')
     expect(m.estado).toBe('pendiente')
     expect(m.desdeToes.ciclo).toBe('2026-10-14')
-    expect(m.direccion).toBeNull()
+    expect(m.direccion).toBe('LOS AROMOS S/N SECTOR UNO PUEBLO')
+    expect(m.numeroDePoste).toBe('6-015613')
     expect(m.historial[0].accion).toMatch(/creado desde TOES/)
   })
 
@@ -84,10 +86,51 @@ describe('POST /api/medidores/desde-toes', () => {
     expect((await alta(propio, cuerpo())).status).toBe(201)
   })
 
-  test('no acepta la dirección ni la lectura aunque vengan', async () => {
+  test('no acepta la lectura aunque venga', async () => {
     const { token } = await crearUsuarioYObtenerToken('admin')
-    await alta(token, cuerpo({ direccion: 'LOS AROMOS 12', lectura: '98765', READINGRESULT: '98765' }))
+    await alta(token, cuerpo({ lectura: '98765', READINGRESULT: '98765' }))
     const m = await Medidor.findOne({ instalacion: 'E714999999' }).lean()
-    expect(JSON.stringify(m)).not.toMatch(/AROMOS|98765/)
+    expect(JSON.stringify(m)).not.toMatch(/98765/)
+  })
+
+  test('completa dirección y poste de un pin que creó desde TOES sin ellos', async () => {
+    await Medidor.create({
+      instalacion: 'E714999999', unidadDeLectura: UL, desdeToes: { ciclo: '2026-10-14' },
+      ubicacion: { type: 'Point', coordinates: [-71.1, -35.1] },
+    })
+    const { token } = await crearUsuarioYObtenerToken('admin')
+
+    const res = await alta(token, cuerpo())
+
+    expect(res.body).toEqual({ creado: false, completado: true })
+    const m = await Medidor.findOne({ instalacion: 'E714999999' })
+    expect(m.direccion).toBe('LOS AROMOS S/N SECTOR UNO PUEBLO')
+    expect(m.numeroDePoste).toBe('6-015613')
+    // lo demás no se toca: ni la posición ni la UL
+    expect(m.ubicacion.coordinates).toEqual([-71.1, -35.1])
+    expect(m.historial.at(-1).accion).toMatch(/completado desde TOES: direccion y numeroDePoste/)
+  })
+
+  test('al completar no pisa lo que ya tenía', async () => {
+    await Medidor.create({
+      instalacion: 'E714999999', unidadDeLectura: UL, desdeToes: {}, direccion: 'CORREGIDA A MANO',
+    })
+    const { token } = await crearUsuarioYObtenerToken('admin')
+
+    await alta(token, cuerpo())
+
+    const m = await Medidor.findOne({ instalacion: 'E714999999' })
+    expect(m.direccion).toBe('CORREGIDA A MANO')
+    expect(m.numeroDePoste).toBe('6-015613')
+  })
+
+  test('no completa un pin de MLA aunque le falte la dirección', async () => {
+    await Medidor.create({ instalacion: 'E714999999', unidadDeLectura: UL })
+    const { token } = await crearUsuarioYObtenerToken('admin')
+
+    const res = await alta(token, cuerpo())
+
+    expect(res.body.completado).toBeUndefined()
+    expect((await Medidor.findOne({ instalacion: 'E714999999' })).direccion).toBeNull()
   })
 })

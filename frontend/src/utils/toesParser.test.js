@@ -314,11 +314,36 @@ describe('GPS del lector y marca del medidor', () => {
     }
   })
 
-  test('sigue sin copiar la lectura ni la dirección', () => {
-    const { eventos } = parsearLog(bloqueServicio({ lectura: '98765', calle: 'LOS AROMOS' }))
-    const texto = JSON.stringify(eventos)
-    assert.ok(!texto.includes('98765'))
-    assert.ok(!texto.includes('AROMOS'))
+  test('sigue sin copiar la lectura', () => {
+    const { eventos } = parsearLog(bloqueServicio({ lectura: '98765' }))
+    assert.ok(!JSON.stringify(eventos).includes('98765'))
+  })
+})
+
+describe('dirección y poste', () => {
+  // La dirección de la base (la de los mapas de MLA) es exactamente estos
+  // campos en este orden: comprobado contra 1.061 servicios reales.
+  test('arma la dirección como la de MLA y saca el poste de INVENTORY', () => {
+    const { eventos } = parsearLog(bloqueServicio({
+      calle: 'LOS AROMOS', numero: 'S/N', numero2: 'PC 12', sector: 'SECTOR UNO', ciudad: 'PUEBLO', poste: '6-015613',
+    }))
+    assert.equal(eventos[0].direccion, 'LOS AROMOS S/N PC 12 SECTOR UNO PUEBLO')
+    assert.equal(eventos[0].poste, '6-015613')
+  })
+
+  test('salta los campos vacíos y deja un solo espacio', () => {
+    const { eventos } = parsearLog(bloqueServicio({
+      calle: 'CAMINO  REAL ', numero: '120', numero2: '', sector: '', ciudad: 'PUEBLO',
+    }))
+    assert.equal(eventos[0].direccion, 'CAMINO REAL 120 PUEBLO')
+  })
+
+  test('sin datos queda en null', () => {
+    const { eventos } = parsearLog(bloqueServicio({
+      calle: '', numero: '', numero2: '', sector: '', ciudad: '', poste: '',
+    }))
+    assert.equal(eventos[0].direccion, null)
+    assert.equal(eventos[0].poste, null)
   })
 })
 

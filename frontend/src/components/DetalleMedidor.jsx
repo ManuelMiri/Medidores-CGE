@@ -210,8 +210,8 @@ export function DetalleMedidor({
         </p>
       )}
       {/* Un pin creado desde TOES (medidor.desdeToes) no lleva aviso, a propósito:
-          se reconoce porque no trae dirección ni poste. Hubo uno y al usuario no
-          le gustó. */}
+          hubo uno y al usuario no le gustó. Con la dirección y el poste del log
+          se ve igual que uno de MLA; de dónde salió queda en el historial. */}
       <p style={{ margin: 0, fontSize: '0.8rem' }}>
         <strong>Estado del mapeo:</strong> {medidor.estado}<br />
         <strong>Dirección:</strong> {medidor.direccion || '—'}<br />

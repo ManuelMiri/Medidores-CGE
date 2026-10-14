@@ -9,7 +9,8 @@ const altasPendientes = (m, p, u, ahora = AHORA) => calcular(m, p, u, ahora)
 const UL = 'E3550001'
 const ev = (instalacion, extra = {}) => [instalacion, {
   instalacion, unidad: UL, ciclo: '2026-10-14', medidor: 'S-' + instalacion, marca: 'ENERTEC',
-  fecha: '2026-10-14T19:53:21.971Z', gps: { lat: -35.42, lng: -71.65 }, ...extra,
+  fecha: '2026-10-14T19:53:21.971Z', gps: { lat: -35.42, lng: -71.65 },
+  direccion: 'LOS AROMOS S/N PUEBLO', poste: '6-015613', ...extra,
 }]
 const porUl = (eventos, extra = {}) => ({ [UL]: { ciclo: '2026-10-14', descartado: false, tomados: new Map(eventos), ...extra } })
 const cargado = (instalacion, extra = {}) => ({ instalacion, unidadDeLectura: UL, ...extra })
@@ -19,7 +20,8 @@ describe('altasPendientes', () => {
     const { altas } = altasPendientes([cargado('A')], porUl([ev('A'), ev('B')]), [UL])
     assert.deepEqual(altas, [{
       instalacion: 'B', ul: UL, ciclo: '2026-10-14', lat: -35.42, lng: -71.65,
-      serie: 'S-B', marca: 'ENERTEC', fecha: '2026-10-14T19:53:21.971Z',
+      serie: 'S-B', marca: 'ENERTEC', direccion: 'LOS AROMOS S/N PUEBLO', poste: '6-015613',
+      fecha: '2026-10-14T19:53:21.971Z',
     }])
   })
 
@@ -55,6 +57,24 @@ describe('altasPendientes', () => {
     const viejo = ev('B', { fecha: '2026-10-01T15:00:00.000Z' })
     const sinFecha = ev('C', { fecha: null })
     assert.deepEqual(altasPendientes([cargado('A')], porUl([viejo, sinFecha]), [UL]).altas, [])
+  })
+
+  test('completa dirección y poste de un pin creado desde TOES que no los tenía', () => {
+    const viejo = cargado('B', { desdeToes: { ciclo: '2026-10-14' }, direccion: null, numeroDePoste: null })
+    const { altas } = altasPendientes([cargado('A'), viejo], porUl([ev('B')]), [UL])
+    assert.equal(altas.length, 1)
+    assert.equal(altas[0].completar, true)
+    assert.equal(altas[0].direccion, 'LOS AROMOS S/N PUEBLO')
+  })
+
+  test('no toca un pin de MLA aunque le falte la dirección', () => {
+    const deMla = cargado('B', { direccion: null, numeroDePoste: null })
+    assert.deepEqual(altasPendientes([deMla], porUl([ev('B')]), [UL]).altas, [])
+  })
+
+  test('un pin creado desde TOES que ya está completo no se vuelve a mandar', () => {
+    const completo = cargado('B', { desdeToes: {}, direccion: 'X', numeroDePoste: 'Y' })
+    assert.deepEqual(altasPendientes([completo], porUl([ev('B')]), [UL]).altas, [])
   })
 
   test('ignora un ciclo descartado y las ULs no marcadas', () => {

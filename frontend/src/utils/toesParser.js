@@ -1,10 +1,11 @@
 // toesParser.js
 // Lee el texto de un Log_TOES-*.txt y devuelve solo lo necesario para el mapa:
 // qué instalación se tomó, en qué UL y ciclo, con qué clave (si hubo) y a qué hora.
-// No guarda lecturas, direcciones ni otros datos del cliente. Sí guarda, en el
-// teléfono, el medidor (serie y marca) y el GPS del lector al guardar: con eso
-// se crea el pin de un servicio que no está en el mapa, y es lo único de esto
-// que sale del teléfono, solo para esos servicios (ver CLAUDE.md).
+// No guarda lecturas ni otros datos del cliente. Sí guarda, en el teléfono, el
+// medidor (serie y marca), la dirección, el poste y el GPS del lector al
+// guardar: con eso se crea el pin de un servicio que no está en el mapa, y es
+// lo único de esto que sale del teléfono, solo para esos servicios (ver
+// CLAUDE.md). La lectura no se copia nunca.
 
 const MARCA = 'Backup de la lectura (';
 
@@ -41,6 +42,16 @@ const soloFecha = (v) => limpio(v).slice(0, 10);
 // 29 m). Sirve para crear el pin de un servicio que no está en el mapa
 // (hooks/useAltasToes.js). Fuera de Chile continental, o en 0,0, es un GPS
 // sin señal y no se usa.
+// La dirección tal como la entrega MLA en los mapas de ruta: estos campos, en
+// este orden y separados por espacio. Comprobado contra 1.061 servicios: la
+// misma en todos (en 303 cambian solo espacios o mayúsculas).
+const CAMPOS_DIRECCION = ['STREET', 'HOUSE_NUM1', 'HAUS_NUM2', 'BUILDING', 'DIST_SUPL', 'CO_ADDRESS_CITY1'];
+
+function direccionDelLog(o) {
+  const texto = CAMPOS_DIRECCION.map((c) => limpio(o[c])).filter(Boolean).join(' ').replace(/\s+/g, ' ');
+  return texto || null;
+}
+
 function gpsDelLector(x, y) {
   const lat = parseFloat(x);
   const lng = parseFloat(y);
@@ -85,6 +96,9 @@ export function parsearLog(texto) {
         instalacion: limpio(o.ANLAGE),
         medidor: limpio(o.GERAET),
         marca: limpio(o.HERST) || null,
+        direccion: direccionDelLog(o),
+        // INVENTORY es el número de poste: igual al de la base en 1.061 de 1.061.
+        poste: limpio(o.INVENTORY) || null,
         orden: limpio(o.ABLBELNR),
         clave: clave || null,
         conLectura: limpio(o.READINGRESULT) !== '',

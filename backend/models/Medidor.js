@@ -181,9 +181,9 @@ const medidorSchema = new mongoose.Schema(
     // Pin creado solo por la app: el servicio se tomó en TOES y no estaba en
     // el mapa. La posición es el GPS del lector al guardar la lectura (a 8 m
     // del medidor en la mitad de los casos, a menos de 30 m en el 90 %); si
-    // quedó lejos se afina con "Mover un pin". El popup no lo avisa: se
-    // reconoce porque no trae dirección ni poste. Este dato queda para saber
-    // de dónde salió el pin.
+    // quedó lejos se afina con "Mover un pin". El popup no lo avisa (el
+    // usuario no lo quiso), y con la dirección y el poste del log se ve igual
+    // que uno de MLA: este dato es lo que dice de dónde salió el pin.
     desdeToes: {
       type: new mongoose.Schema(
         {

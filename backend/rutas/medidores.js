@@ -185,16 +185,19 @@ router.post('/', proteger, async (req, res) => {
 })
 
 // POST /api/medidores/desde-toes
-// Body: { instalacion, ul, lat, lng, serie?, marca?, ciclo?, fecha? }
+// Body: { instalacion, ul, lat, lng, serie?, marca?, direccion?, poste?, ciclo?, fecha? }
 //
 // Crea el pin de un servicio que se tomó en TOES y no estaba en el mapa. La
-// app lo llama sola (hooks/useAltasToes.js). Es la tercera excepción a "el log
-// no sale del teléfono", pedida por el usuario: viaja la instalación, la UL,
-// el ciclo, la serie y la marca del medidor, y el GPS del lector al guardar.
-// Nunca la dirección, la lectura ni el nombre del cliente.
+// app lo llama sola (hooks/useEnviosToes.js). Es la tercera excepción a "el
+// log no sale del teléfono", pedida por el usuario: viaja la instalación, la
+// UL, el ciclo, la serie y la marca del medidor, la dirección y el poste (los
+// mismos que entrega MLA en los mapas de ruta) y el GPS del lector al guardar.
+// Nunca la lectura ni el nombre del cliente.
 //
 // Si la instalación ya existe —en esta UL o en otra— no se toca nada: puede
 // ser un servicio mal enrutado, y eso lo decide una persona, no el sondeo.
+// La única excepción es un pin que creó esta misma ruta antes de que el log
+// diera dirección y poste: a ese se le completan, solo si están vacíos.
 router.post('/desde-toes', proteger, async (req, res) => {
   try {
     const texto = (v, max = 40) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
@@ -202,6 +205,8 @@ router.post('/desde-toes', proteger, async (req, res) => {
     const ul = texto(req.body?.ul)
     const lat = Number(req.body?.lat)
     const lng = Number(req.body?.lng)
+    const direccion = texto(req.body?.direccion, 200)
+    const poste = texto(req.body?.poste)
     if (!instalacion || !ul) return res.status(400).json({ error: 'instalacion y ul son obligatorias' })
     // Chile continental: un GPS sin señal (0,0) o cualquier otra cosa no crea un pin.
     if (!(lat >= -56 && lat <= -17 && lng >= -76 && lng <= -66)) {
@@ -211,9 +216,29 @@ router.post('/desde-toes', proteger, async (req, res) => {
       return res.status(403).json({ error: 'No tienes acceso a esa UL' })
     }
 
-    const existente = await Medidor.findOne({ instalacion }).select('instalacion unidadDeLectura')
+    const existente = await Medidor.findOne({ instalacion })
+      .select('instalacion unidadDeLectura desdeToes direccion numeroDePoste')
     if (existente) {
-      return res.status(200).json({ creado: false, unidadDeLectura: existente.unidadDeLectura })
+      const completar = {}
+      if (existente.desdeToes) {
+        if (!existente.direccion && direccion) completar.direccion = direccion
+        if (!existente.numeroDePoste && poste) completar.numeroDePoste = poste
+      }
+      if (Object.keys(completar).length === 0) {
+        return res.status(200).json({ creado: false, unidadDeLectura: existente.unidadDeLectura })
+      }
+      await Medidor.updateOne({ _id: existente._id }, {
+        $set: completar,
+        $push: {
+          historial: {
+            usuario: req.usuario._id,
+            nombre: req.usuario.nombre,
+            accion: `completado desde TOES: ${Object.keys(completar).join(' y ')}`,
+            fecha: new Date(),
+          },
+        },
+      })
+      return res.status(200).json({ creado: false, completado: true })
     }
 
     const fechaLectura = new Date(req.body?.fecha)
@@ -225,6 +250,8 @@ router.post('/desde-toes', proteger, async (req, res) => {
         unidadDeLectura: ul,
         numeroDeSerie: texto(req.body?.serie),
         marca: texto(req.body?.marca),
+        direccion,
+        numeroDePoste: poste,
         ubicacion: { type: 'Point', coordinates: [lng, lat] },
         estado: 'pendiente',
         desdeToes: {

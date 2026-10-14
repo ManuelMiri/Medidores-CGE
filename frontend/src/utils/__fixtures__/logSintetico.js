@@ -23,6 +23,12 @@ export function bloqueServicio({
   // GPS del lector al guardar: TOES lo escribe como texto, X = latitud
   gps = { lat: '-35.4000001', lng: '-71.6000001' },
   marcaMedidor = 'MARCA-1',
+  // el resto de la dirección y el poste (INVENTORY), con datos inventados
+  numero = 'S/N',
+  numero2 = '',
+  sector = 'SECTOR UNO',
+  ciudad = 'PUEBLO',
+  poste = '6-000001',
 } = {}) {
   const json = {
     uid: 'id-sintetico-' + orden,
@@ -32,6 +38,12 @@ export function bloqueServicio({
       ABLEINH: unidad,
       ANLAGE: instalacion,
       STREET: calle,
+      HOUSE_NUM1: numero,
+      HAUS_NUM2: numero2,
+      BUILDING: null,
+      DIST_SUPL: sector,
+      CO_ADDRESS_CITY1: ciudad,
+      INVENTORY: poste,
       ZWNUMMER: registro,
       ABLBELNR: orden,
       ADATSOLL: ciclo + 'T00:00:00.000Z',

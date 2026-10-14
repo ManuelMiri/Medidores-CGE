@@ -32,7 +32,7 @@ export function altasPendientes(medidores, porUl, ulsActivas, ahora = Date.now()
   const bloqueadas = []
   if (!medidores?.length || !porUl) return { altas, bloqueadas }
 
-  const instalaciones = new Set(medidores.map((m) => m.instalacion))
+  const porInstalacion = new Map(medidores.map((m) => [m.instalacion, m]))
   // El mapa también reconoce un servicio por la serie del medidor (respaldo
   // de vistaMarcador): si la serie ya está en algún pin, no falta.
   const series = new Set()
@@ -50,12 +50,10 @@ export function altasPendientes(medidores, porUl, ulsActivas, ahora = Date.now()
 
     const deLaUl = []
     for (const [instalacion, ev] of d.tomados) {
-      if (instalaciones.has(instalacion)) continue
-      if (ev.medidor && series.has(ev.medidor)) continue
       if (!ev.gps) continue
       const leido = Date.parse(ev.fecha ?? '')
       if (!(leido >= ahora - VENTANA_MS)) continue
-      deLaUl.push({
+      const alta = {
         instalacion,
         ul,
         ciclo: ev.ciclo ?? d.ciclo ?? null,
@@ -63,10 +61,26 @@ export function altasPendientes(medidores, porUl, ulsActivas, ahora = Date.now()
         lng: ev.gps.lng,
         serie: ev.medidor || null,
         marca: ev.marca || null,
+        direccion: ev.direccion || null,
+        poste: ev.poste || null,
         fecha: ev.fecha || null,
-      })
+      }
+
+      const existente = porInstalacion.get(instalacion)
+      if (existente) {
+        // Un pin que creó la app antes de que el log diera dirección y poste
+        // (pasó con el primero, el 103694009): se completa lo que le falta.
+        // Solo los creados desde TOES; un pin de MLA no se toca.
+        const falta = (!existente.direccion && alta.direccion) || (!existente.numeroDePoste && alta.poste)
+        if (existente.desdeToes && falta) altas.push({ ...alta, completar: true })
+        continue
+      }
+      if (ev.medidor && series.has(ev.medidor)) continue
+      deLaUl.push(alta)
     }
 
+    // El tope cuenta solo los pines nuevos: completar uno existente no es
+    // señal de una lista a medio cargar.
     const tope = Math.max(MAXIMO_FIJO, Math.floor(d.tomados.size * MAXIMO_PROPORCION))
     if (deLaUl.length > tope) bloqueadas.push(ul)
     else altas.push(...deLaUl)

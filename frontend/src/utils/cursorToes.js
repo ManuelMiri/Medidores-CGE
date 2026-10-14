@@ -39,9 +39,10 @@ export function bytesDePrefijo(texto, hasta = texto.length) {
  * `formato` es lo mismo para el parser: cuando empieza a sacar algo nuevo del
  * log, lo ya leído quedó sin ese dato. Subir FORMATO_PARSER hace que cada log
  * se relea una vez. Pasó con el GPS del lector (formato 2): sin releer, los
- * servicios sin pin de días anteriores nunca se habrían creado.
+ * servicios sin pin de días anteriores nunca se habrían creado. El formato 3
+ * agrega la dirección y el poste.
  */
-export const FORMATO_PARSER = 2
+export const FORMATO_PARSER = 3
 
 export function cursorInicial(previo, tamano) {
   if (!previo || previo.unidadOffset !== 'bytes') return 0

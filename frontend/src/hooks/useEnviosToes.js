@@ -77,12 +77,15 @@ export function useAltasToes(medidores, porUl, ulsActivas, onCambio) {
   return bloqueadas
 }
 
-const claveDeAlta = (a) => a.instalacion
+const claveDeAlta = (a) => `${a.completar ? 'completar' : 'crear'}|${a.instalacion}`
 
+// La misma ruta crea el pin o, si ya lo había creado la app, le completa la
+// dirección y el poste. Nunca la lectura.
 async function enviarAlta(a) {
   const { data } = await api.post('/medidores/desde-toes', {
     instalacion: a.instalacion, ul: a.ul, lat: a.lat, lng: a.lng,
-    serie: a.serie, marca: a.marca, ciclo: a.ciclo, fecha: a.fecha,
+    serie: a.serie, marca: a.marca, direccion: a.direccion, poste: a.poste,
+    ciclo: a.ciclo, fecha: a.fecha,
   })
-  return Boolean(data?.creado)
+  return Boolean(data?.creado || data?.completado)
 }
