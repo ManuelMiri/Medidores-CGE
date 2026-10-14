@@ -209,13 +209,9 @@ export function DetalleMedidor({
           ✔️ {textoToes(toesDelMedidor, toesConfig)}
         </p>
       )}
-      {medidor.desdeToes && (
-        <p style={{ margin: '0 0 0.3rem', fontSize: '0.74rem', color: '#975a16' }}>
-          📡 Pin creado solo desde TOES ({diaMes(medidor.desdeToes.fechaLectura)}): la posición
-          es el GPS del lector al guardar, puede tener unos metros de error. Se afina con
-          ✏️ Editar → Cambiar ubicación.
-        </p>
-      )}
+      {/* Un pin creado desde TOES (medidor.desdeToes) no lleva aviso, a propósito:
+          se reconoce porque no trae dirección ni poste. Hubo uno y al usuario no
+          le gustó. */}
       <p style={{ margin: 0, fontSize: '0.8rem' }}>
         <strong>Estado del mapeo:</strong> {medidor.estado}<br />
         <strong>Dirección:</strong> {medidor.direccion || '—'}<br />

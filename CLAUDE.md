@@ -93,8 +93,8 @@ PWA en Vercel ─────────────┘   /api/...            �
   - Las instalaciones son texto: numéricas o con letra (`E714171252`, `G3534036`).
   - `cambioMedidor` (opcional): el último cambio que registró TOES (serie y marca anteriores y
     nuevas, si fue el principal o el lupa). Los anteriores quedan en el historial.
-  - `desdeToes` (opcional): el pin lo creó la app con el GPS del lector; el popup avisa que la
-    posición es aproximada.
+  - `desdeToes` (opcional): el pin lo creó la app con el GPS del lector. Solo queda como registro;
+    el popup no lo muestra.
   - `fotos[].idLocal`: id que pone el teléfono, para que reintentar una subida no la duplique.
     `fotos[].fecha` es cuándo se sacó, no cuándo llegó.
 - **Modelo `NotaUl`** (`backend/models/NotaUl.js`): notas de una ruta (la clave de un portón). Se
@@ -255,8 +255,9 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
 - **Cambio de medidor desde TOES:** la app actualiza sola serie y marca. Si la serie vieja era la
   del lupa, cambia el lupa. El popup muestra "Medidor cambiado: dd-mm · antes X (MARCA)".
 - **Pin automático:** un servicio tomado en TOES que no está en la base se crea con el GPS del
-  lector al guardar, como `pendiente`, y con un aviso de posición aproximada en el popup. Medido
-  contra 1.061 pines: mediana 8 m, p90 29 m, y 1,4 % a más de 500 m. Resguardos (en
+  lector al guardar, como `pendiente`. **Sin aviso en el popup, a propósito**: hubo uno ("Pin
+  creado solo desde TOES…") y al usuario no le gustó; se reconoce porque no trae dirección ni
+  poste. Medido contra 1.061 pines: mediana 8 m, p90 29 m, y 1,4 % a más de 500 m. Resguardos (en
   `altasToes.js`):
   - no considera una UL sin medidores cargados;
   - no crea nada si la serie ya está en otro pin;
@@ -329,6 +330,11 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   página y `Runtime.evaluate` no contesta hasta que alguien lo cierra en el teléfono. Para probar algo
   que pregunta (cambiar de motor, eliminar), reemplazar `window.confirm`/`window.alert` antes, o hacer
   directo lo que haría el botón (el motor es `localStorage.motorMapa`).
+- **Si se publica el backend con la app abierta, los envíos automáticos no se reintentan hasta
+  reabrirla.** La marca, el cambio de medidor y el pin nuevo se intentan una vez por sesión cuando
+  el servidor contesta. Una app abierta antes del deploy recibe 404 del backend viejo y no
+  insiste. Pasó el 2026-10-14: el pin recién se creó al recargar. Reintentar cada 10 minutos lo
+  evitaría; se ofreció y no está hecho.
 - **`git merge -F -` no lee el mensaje de stdin** (`git commit -F -` sí). Escribirlo a un archivo.
 - **Si el parser empieza a sacar algo nuevo del log, subir `FORMATO_PARSER`** (`cursorToes.js`).
   Lo ya leído quedó guardado sin ese dato, y el cursor no vuelve atrás. Con el formato nuevo, cada
@@ -347,24 +353,24 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-Al 2026-10-13 (noche), `main` y `Develop` están en `0095ec9` y producción (Railway y Vercel) tiene
-todo: TOES, la marca permanente, MapLibre, el buscador por UL, el panel desplegable, y de la rama
-`terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir", "centrar en mí",
-hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB), instalaciones repetidas en el
-archivo, medidor lupa y el control de ULs del lector en `GET /medidores?ul=`. Verificado en el
-teléfono en los dos motores.
+Al 2026-10-14 (noche), producción (Railway y Vercel) tiene:
+- lo anterior: TOES, la marca permanente, MapLibre, el buscador por UL y el panel desplegable;
+- de la rama `terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir",
+  "centrar en mí", hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB),
+  instalaciones repetidas en el archivo, medidor lupa y el control de ULs del lector en
+  `GET /medidores?ul=`;
+- de la rama `ajustes-terreno` (publicada en `ae1eca2`): cambio de medidor desde TOES, pin
+  automático, notas por UL y fotos comprimidas con cola sin señal.
 
-El APK a repartir es la **2.3 (code 5)**, build de debug, copiada como `MLA-Maule-2.3.apk` en
+Verificado en producción: se creó el pin 103694009 (E3550001) y E713709426 quedó con la serie
+nueva. Después de `ae1eca2` se sacó el aviso del popup de los pines creados desde TOES.
+
+El APK a repartir es la **2.4.1 (code 7)**, build de debug, copiada como `MLA-Maule-2.4.1.apk` en
 `frontend/android/app/build/outputs/apk/debug/`. Lo de solo frontend no llega a los teléfonos que
-sigan con la 2.2; lo del backend sí.
+sigan con una versión anterior; lo del backend sí.
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
-
-En la rama **`ajustes-terreno`** (2026-10-14), todavía **no** en `main`: cambio de medidor desde
-TOES, pin automático para servicios sin pin, notas por UL, fotos comprimidas y con cola sin señal.
-Es compatible hacia atrás: un APK nuevo contra el backend viejo recibe 404 en las rutas nuevas y
-no reintenta, y un APK viejo no llama a ninguna.
 
 Pendiente:
 
