@@ -28,6 +28,14 @@ Salió de una jornada de terreno con rutas nuevas:
 
 Y en el backend, que les sirve también a los APK viejos: rutas grandes al importar, instalaciones repetidas en el archivo, el medidor lupa y el control de ULs del lector.
 
+### Lo que trae la 2.4 (14 de octubre de 2026)
+
+- **Cambio de medidor desde TOES:** la serie y la marca nuevas pasan solas a la base, y el popup muestra el medidor anterior (ver "Cambio de medidor y servicios sin pin").
+- **Pin automático:** un servicio tomado en TOES que no estaba en el mapa se crea con el GPS del lector al guardar, más la dirección y el poste del log.
+- **📊 Reporte de ruta** en el panel de TOES: servicios, leídos, casas cerradas por tipo, eriazos, cambios, nuevos y pendientes, en un popup chico con un botón **Copiar** que deja el texto listo para WhatsApp.
+- **📝 Notas por UL:** la clave de un portón, un perro bravo. Se ven sin señal (copia en el teléfono) y nunca se borran: se ocultan.
+- **Fotos sin señal:** se achican a 1920 px y se guardan en el teléfono antes de subir. Si no hay señal esperan (⏳) y se suben solas después; antes se perdían.
+
 ## Stack
 
 - **Backend:** Node.js, Express 5, Mongoose 9, MongoDB Atlas
@@ -112,11 +120,11 @@ El objetivo: a medida que el lector guarda servicios en TOES, esos puntos **desa
 El log trae **datos de clientes**: direcciones, lecturas y coordenadas.
 
 - **Todo el procesamiento ocurre dentro del teléfono.** El log nunca se sube.
-- El estado derivado se guarda en **IndexedDB** del dispositivo. Solo se guarda: UL, ciclo, instalación, medidor (serie y marca), clave (si hubo), si hubo lectura, fecha y el GPS del lector al guardar.
-- **Tres excepciones deliberadas**, aprobadas una por una, mandan al servidor un mínimo y nunca la dirección, la lectura ni el nombre del cliente:
+- El estado derivado se guarda en **IndexedDB** del dispositivo. Solo se guarda: UL, ciclo, instalación, medidor (serie y marca), dirección, poste, clave (si hubo), si hubo lectura, fecha y el GPS del lector al guardar. La lectura no se guarda nunca.
+- **Tres excepciones deliberadas**, aprobadas una por una, mandan al servidor un mínimo y nunca la lectura ni el nombre del cliente:
   - **Marca permanente:** instalación, tipo, clave y ciclo (ver "Memoria de terreno").
   - **Cambio de medidor:** instalación, serie y marca nuevas, serie anterior, ciclo y fecha.
-  - **Pin de un servicio que no estaba en el mapa:** instalación, UL, ciclo, serie, marca y GPS del lector al guardar. Solo para instalaciones que no existen en la base y lecturas de los últimos 3 días.
+  - **Pin de un servicio que no estaba en el mapa:** instalación, UL, ciclo, serie, marca, dirección, poste y GPS del lector al guardar. Solo para instalaciones que no existen en la base (o para completar un pin que creó la app) y lecturas de los últimos 3 días. La dirección y el poste se aprobaron porque son los mismos que entrega MLA en los mapas de ruta.
 - **Solo lectura:** nunca escribir, mover ni borrar archivos en `/TOES`.
 - **Los logs reales no entran al repositorio.** `.gitignore` bloquea `Log_TOES*.txt` y `*.log.txt`. Los tests usan el fixture sintético de `__fixtures__/`, con datos inventados.
 
@@ -126,7 +134,7 @@ Esto tiene una consecuencia de arquitectura importante: **ocultar del mapa lo ya
 
 Cuando el lector cambia un medidor, TOES deja dos cosas en el log: el "Backup" de la orden con **clave 10**, sin lectura y todavía con el medidor **viejo** en `GERAET`/`HERST`, y justo después un bloque aparte `/CambioMedidor` (`method: create`) con la serie (`SERNR`) y la marca (`HERST_CAMMED`) del **nuevo**. El parser junta las dos y la app actualiza la base sola (`POST /api/medidores/:instalacion/cambio-medidor`); si la serie vieja era la del lupa, cambia el lupa.
 
-Cada lectura trae el GPS del lector al guardar (`LEC_COOR_X` = latitud, `LEC_COOR_Y` = longitud). Contra 1.061 pines reales quedó a 8 m en la mediana y a menos de 29 m en el 90 % (1,4 % a más de 500 m). Con eso la app crea el pin de un servicio tomado que no estaba en el mapa (`POST /api/medidores/desde-toes`), como `pendiente`. El popup no lo avisa: se reconoce porque no trae dirección ni poste. `utils/altasToes.js` tiene los resguardos: no mira una UL cuyos medidores no cargaron, no crea nada si la serie ya está en otro pin, frena la UL si faltan demasiados (más de 10 o del 20 %) y solo usa lecturas de los últimos 3 días, para que un pin eliminado a propósito no vuelva solo. El servidor nunca toca una instalación que ya existe, en ninguna UL.
+Cada lectura trae el GPS del lector al guardar (`LEC_COOR_X` = latitud, `LEC_COOR_Y` = longitud). Contra 1.061 pines reales quedó a 8 m en la mediana y a menos de 29 m en el 90 % (1,4 % a más de 500 m). Con eso la app crea el pin de un servicio tomado que no estaba en el mapa (`POST /api/medidores/desde-toes`), como `pendiente`, con la dirección y el poste del log: la dirección de la base es `STREET HOUSE_NUM1 HAUS_NUM2 BUILDING DIST_SUPL CO_ADDRESS_CITY1` (los vacíos se saltan), igual en 1.061 de 1.061 servicios, y el poste es `INVENTORY`, también 1.061 de 1.061. El popup no avisa que el pin salió de TOES, a pedido del usuario; queda en `desdeToes` y en el historial. A un pin que la app creó sin dirección ni poste se le completan, solo si están vacíos. `utils/altasToes.js` tiene los resguardos: no mira una UL cuyos medidores no cargaron, no crea nada si la serie ya está en otro pin, frena la UL si faltan demasiados (más de 10 o del 20 %) y solo usa lecturas de los últimos 3 días, para que un pin eliminado a propósito no vuelva solo. El servidor nunca toca una instalación que ya existe, en ninguna UL.
 
 Cuando el parser empieza a sacar un dato nuevo del log, se sube `FORMATO_PARSER` (`cursorToes.js`) y cada log se relee una vez: lo ya leído había quedado sin ese dato.
 
@@ -515,7 +523,7 @@ Antes había dos formas distintas de verificar el token: una función local `ver
 | DELETE | `/api/medidores/:instalacion` | **admin** | Elimina un medidor |
 | POST | `/api/medidores/:instalacion/fotos` | autenticado | Sube una foto a Cloudinary (con coordenadas). `idLocal` evita duplicarla al reintentar; `fecha` es cuándo se sacó |
 | POST | `/api/medidores/:instalacion/cambio-medidor` | autenticado | Serie y marca nuevas desde TOES (idempotente; `lector` solo en sus ULs) |
-| POST | `/api/medidores/desde-toes` | autenticado | Crea el pin de un servicio tomado sin pin, con el GPS del lector. Nunca toca una instalación existente |
+| POST | `/api/medidores/desde-toes` | autenticado | Crea el pin de un servicio tomado sin pin (GPS del lector, dirección y poste). Solo completa los campos vacíos de un pin que creó la app; nunca toca otro |
 | POST | `/api/importacion/preview` | **admin** | Parsea un `.kml`/`.xlsx` y devuelve lo que falta, sin escribir. Informa repetidos y lupas |
 | POST | `/api/importacion/confirmar` | **admin** | Inserta los medidores del preview y agrega los lupas que falten (`lupas`, opcional) |
 | GET | `/api/rutas/:ul/exportar` | **admin**, supervisor | Exporta una UL completa |

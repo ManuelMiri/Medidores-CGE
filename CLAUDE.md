@@ -24,16 +24,19 @@ teléfono.
   no tiene una sola llamada que modifique; mantenerlo así.
 - **El contenido de los logs no sale del teléfono.** Traen datos de clientes (direcciones, lecturas,
   coordenadas). Se procesan on-device y solo se persiste, en el teléfono: UL, ciclo, instalación,
-  medidor (serie y marca), clave, si hubo lectura, fecha y el GPS del lector al guardar.
+  medidor (serie y marca), dirección, poste, clave, si hubo lectura, fecha y el GPS del lector al
+  guardar. **La lectura no se guarda ni sale nunca.**
   Hay **tres excepciones deliberadas**, aprobadas una por una por el usuario. Cada una manda solo
-  esto, y nunca la dirección, la lectura ni el nombre del cliente:
+  lo que se lista, y nunca la lectura ni el nombre del cliente:
   - **Marca permanente** (`useMarcasToes`): instalación, tipo de marca, clave y ciclo. Para que el
     lector del mes siguiente —otra persona, otro teléfono— vea que en un punto ya no hay medidor.
   - **Cambio de medidor** (`useCambiosToes`, 2026-10-14): instalación, serie y marca nuevas, serie
     anterior, ciclo y fecha. Para que la base quede igual que SAP.
-  - **Pin de un servicio sin pin** (`useAltasToes`, 2026-10-14): instalación, UL, ciclo, serie, marca
-    y el GPS del lector al guardar. **Solo** para servicios que no están en la base y **solo** lecturas
-    de los últimos 3 días.
+  - **Pin de un servicio sin pin** (`useAltasToes`, 2026-10-14): instalación, UL, ciclo, serie, marca,
+    dirección, número de poste y el GPS del lector al guardar. **Solo** para servicios que no están
+    en la base (o para completar un pin que creó la app) y **solo** lecturas de los últimos 3 días.
+    Dirección y poste los aprobó el usuario porque son los mismos que entrega MLA en los mapas de
+    ruta. **La lectura no sale nunca: "eso no se puede tocar".**
   Si hace falta mandar algo más, parar y preguntar.
   - Por lo mismo, **pedir un tile al mapa le manda esa coordenada a Esri/OSM**: las coordenadas para
     bajar mapas salen de la base (`medidores[].ubicacion`), nunca del log.
@@ -94,7 +97,7 @@ PWA en Vercel ─────────────┘   /api/...            �
   - `cambioMedidor` (opcional): el último cambio que registró TOES (serie y marca anteriores y
     nuevas, si fue el principal o el lupa). Los anteriores quedan en el historial.
   - `desdeToes` (opcional): el pin lo creó la app con el GPS del lector. Solo queda como registro;
-    el popup no lo muestra.
+    el popup no lo muestra, y con la dirección y el poste del log el pin se ve igual que uno de MLA.
   - `fotos[].idLocal`: id que pone el teléfono, para que reintentar una subida no la duplique.
     `fotos[].fecha` es cuándo se sacó, no cuándo llegó.
 - **Modelo `NotaUl`** (`backend/models/NotaUl.js`): notas de una ruta (la clave de un portón). Se
@@ -119,7 +122,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 170 tests con node --test (1 se salta sin log real)
+npm test              # 183 tests con node --test (1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -128,7 +131,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 121 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 124 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3
@@ -225,6 +228,7 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 | `frontend/src/hooks/useNotasUl.js` + `components/NotasUl.jsx` | notas de la ruta, con copia en el teléfono |
 | `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal (IndexedDB) |
 | `frontend/src/utils/comprimirFoto.js` | achica la foto a 1920 px antes de guardarla |
+| `frontend/src/utils/reporteRuta.js` + `components/ReporteRuta.jsx` | el reporte de ruta y su texto para WhatsApp |
 | `frontend/src/hooks/useToes.js` | une parser + almacén + mapa |
 | `frontend/public/sw-tiles.js` | service worker del APK: cachea tiles, no precachea |
 | `frontend/android/.../toes/ToesPlugin.java` | lee `/TOES` por SAF, solo lectura |
@@ -255,14 +259,20 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
 - **Cambio de medidor desde TOES:** la app actualiza sola serie y marca. Si la serie vieja era la
   del lupa, cambia el lupa. El popup muestra "Medidor cambiado: dd-mm · antes X (MARCA)".
 - **Pin automático:** un servicio tomado en TOES que no está en la base se crea con el GPS del
-  lector al guardar, como `pendiente`. **Sin aviso en el popup, a propósito**: hubo uno ("Pin
-  creado solo desde TOES…") y al usuario no le gustó; se reconoce porque no trae dirección ni
-  poste. Medido contra 1.061 pines: mediana 8 m, p90 29 m, y 1,4 % a más de 500 m. Resguardos (en
-  `altasToes.js`):
+  lector al guardar, como `pendiente`, con la dirección y el poste del log. **Sin aviso en el
+  popup, a propósito**: hubo uno ("Pin creado solo desde TOES…") y al usuario no le gustó. Un pin
+  que la app creó sin dirección ni poste (el 103694009, antes del formato 3) se completa solo, y
+  solo en los campos vacíos. Medido contra 1.061 pines: mediana 8 m, p90 29 m, y 1,4 % a más de
+  500 m. Resguardos (en `altasToes.js`):
   - no considera una UL sin medidores cargados;
   - no crea nada si la serie ya está en otro pin;
   - frena la UL si faltan más de 10 o del 20 %;
   - solo considera lecturas de los últimos 3 días, para que un pin eliminado no vuelva solo.
+- **Reporte de ruta:** "📊 Reporte", al lado de "Nuevo ciclo", en el panel de TOES. Abre un popup
+  con servicios, avance, leídos, casas cerradas por tipo, eriazos, cambios de medidor, otras claves,
+  pendientes y nuevos, y un botón **Copiar** que arma el texto para WhatsApp. Las categorías no se
+  pisan (cada tomado va a una sola según su clave), así que suman el total. "Nuevos" va aparte:
+  son los que no venían en la ruta, o sea creados desde TOES en ese ciclo o todavía sin pin.
 - **Notas de la UL:** botón 📝 en cada UL marcada, con el número de notas a la vista. Sin señal
   muestra la última copia guardada en el teléfono.
 - **Fotos:** se achican a 1920 px (JPEG 0,75: de varios MB a unos cientos de KB) y se guardan en el
@@ -343,6 +353,9 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   - `LEC_COOR_X` es la **latitud** y `LEC_COOR_Y` la longitud: el GPS del lector al guardar.
     Viene en todas las lecturas. `COORDENADA_X/Y` no sirve: falta en el 27 % y, donde viene, queda
     a ~1,8 km del GPS.
+  - **La dirección de MLA** es `STREET HOUSE_NUM1 HAUS_NUM2 BUILDING DIST_SUPL CO_ADDRESS_CITY1`,
+    con los vacíos salteados y separados por espacio (igual a la de la base en 1.061 de 1.061).
+    **El poste es `INVENTORY`** (1.061 de 1.061).
   - **Cambio de medidor:** el "Backup" de la orden lleva clave 10, sin lectura, y el medidor
     **viejo** en `GERAET`/`HERST`. Justo después viene un bloque aparte, `/CambioMedidor`
     (`method: create`), con `SERNR` y `HERST_CAMMED` del **nuevo** y su lectura (que no se copia).
@@ -363,9 +376,12 @@ Al 2026-10-14 (noche), producción (Railway y Vercel) tiene:
   automático, notas por UL y fotos comprimidas con cola sin señal.
 
 Verificado en producción: se creó el pin 103694009 (E3550001) y E713709426 quedó con la serie
-nueva. Después de `ae1eca2` se sacó el aviso del popup de los pines creados desde TOES.
+nueva. Después de `ae1eca2`, en la rama `ajustes-terreno`:
+- se sacó el aviso del popup de los pines creados desde TOES;
+- los pines nuevos llevan dirección y poste del log (`FORMATO_PARSER` 3);
+- se agregó el reporte de ruta.
 
-El APK a repartir es la **2.4.1 (code 7)**, build de debug, copiada como `MLA-Maule-2.4.1.apk` en
+El APK a repartir es la **2.5 (code 8)**, build de debug, copiada como `MLA-Maule-2.5.apk` en
 `frontend/android/app/build/outputs/apk/debug/`. Lo de solo frontend no llega a los teléfonos que
 sigan con una versión anterior; lo del backend sí.
 
