@@ -1,7 +1,7 @@
 // src/pages/Mapa.jsx
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
-import { Spinner, Alert, Form, InputGroup, Button, Modal } from 'react-bootstrap'
+import { Spinner, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import api from '../services/api'
 import { App } from '@capacitor/app'
 import { useAuth } from '../context/AuthContext'
@@ -17,10 +17,13 @@ import { useMarcasToes } from '../hooks/useMarcasToes'
 import { useCambiosToes, useAltasToes } from '../hooks/useEnviosToes'
 import { useNotasUl } from '../hooks/useNotasUl'
 import { useColaFotos } from '../hooks/useColaFotos'
+import { useReintentoSinSenal } from '../hooks/useReintentoSinSenal'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
 import { ulsARestaurar, ulsTrasRecargar } from '../utils/ulsActivas'
+import { leerCopiaUls, guardarCopiaUls, leerCopiaMedidores, guardarCopiaMedidores } from '../utils/copiaRutas'
+import { sirveLaCopia, resolverCargaUl, unirMedidores, resumenSinSenal, textoSinSenal } from '../utils/cargaSinSenal'
 import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
 import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
 import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
@@ -249,6 +252,13 @@ function leerUlsGuardadas() {
 // ulsActivas todavía es [], y pisaría lo guardado antes de poder leerlo.
 const ulsIniciales = leerUlsGuardadas()
 
+// Con poca señal una petición no falla: queda colgada minutos. Sin tope, la
+// app se quedaba en "Cargando sistema..." indefinidamente. La lista de ULs es
+// chica; los medidores de una UL larga pesan del orden de un MB y con una
+// barra de señal tardan.
+const TOPE_ULS_MS = 20000
+const TOPE_MEDIDORES_MS = 60000
+
 function RecordarCapa({ onCambio }) {
   useMapEvents({
     baselayerchange: (e) => {
@@ -351,6 +361,13 @@ export default function Mapa() {
   const [ulsActivas, setUlsActivas]     = useState([])
   const [cargando, setCargando]         = useState(true)
   const [error, setError]               = useState(null)
+  // Sin señal (utils/cargaSinSenal.js): de dónde salió lo que se ve.
+  const [copiaUls, setCopiaUls]         = useState(null)  // fecha, si la lista de ULs es la copia
+  const [listaSinRed, setListaSinRed]   = useState(false) // ni red ni copia de la lista
+  const [sinSenalMedidores, setSinSenalMedidores] = useState(null)
+  // La copia del teléfono va por usuario: en un teléfono compartido el que
+  // entra después no ve las rutas del anterior.
+  const idCopia = usuario.id ?? usuario.email
   const [busqueda, setBusqueda]         = useState('')
   const [filtroUl, setFiltroUl]         = useState('')
   // Arranca cerrada si había ULs guardadas (se vuelve a la ruta del día sin
@@ -530,40 +547,101 @@ export default function Mapa() {
   // un KML, eliminar una ruta): solo al arrancar se restaura lo guardado; si
   // no, se pisaba lo que el lector marcó durante la sesión.
   async function cargarUls({ alAbrir = false } = {}) {
+    // Al abrir, la copia del teléfono primero: sin señal es lo único que hay
+    // (caso del 2026-10-16, ver utils/cargaSinSenal.js), y con señal se ve al
+    // tiro mientras llega la lista nueva.
+    if (alAbrir) {
+      const copia = await leerCopiaUls(idCopia)
+      if (copia?.uls?.length) {
+        setUls((actual) => (actual.length ? actual : copia.uls))
+        setUlsActivas((prev) => (prev.length ? prev : ulsARestaurar(ulsIniciales, copia.uls)))
+        setCargando(false)
+      }
+    }
     try {
-      const { data } = await api.get('/medidores/uls')
+      const { data } = await api.get('/medidores/uls', { timeout: TOPE_ULS_MS })
       setUls(data.uls)
+      guardarCopiaUls(idCopia, data.uls)
+      setCopiaUls(null)
+      setListaSinRed(false)
       // La regla de qué se restaura vive en utils/ulsActivas.js, con tests:
       // descartar una UL que ya no existe falla en silencio (el mapa queda
-      // vacío sin decir por qué).
-      if (alAbrir) {
-        const restauradas = ulsARestaurar(ulsIniciales, data.uls)
-        if (restauradas.length > 0) setUlsActivas(restauradas)
+      // vacío sin decir por qué). Si la copia ya restauró algo, esto cuenta
+      // como una recarga: se conserva lo marcado.
+      setUlsActivas((prev) => (alAbrir && prev.length === 0
+        ? ulsARestaurar(ulsIniciales, data.uls)
+        : ulsTrasRecargar(prev, data.uls)))
+    } catch (err) {
+      if (!sirveLaCopia(err)) {
+        setError('Error al cargar las unidades de lectura')
       } else {
-        setUlsActivas((prev) => ulsTrasRecargar(prev, data.uls))
+        const copia = await leerCopiaUls(idCopia)
+        if (copia?.uls?.length) setCopiaUls(copia.fecha)
+        else if (uls.length === 0) setListaSinRed(true)
       }
-    } catch { setError('Error al cargar las unidades de lectura') }
+    }
     finally { setCargando(false) }
   }
 
-  const cargarMedidores = useCallback(async () => {
-    try {
-      setCargando(true)
-      // 1500 por UL: las rutas más largas tienen ~1000 servicios. Con 500, la
-      // E3509011 (515) dejaba 15 medidores fuera del mapa sin ningún aviso.
-      const promesas = ulsActivas.map(ul => api.get(`/medidores?ul=${ul}&limite=1500`))
-      const resultados = await Promise.all(promesas)
-      const todos = resultados.flatMap(r => r.data.medidores)
-      const unicos = Array.from(new Map(todos.map(m => [m._id, m])).values())
-      setMedidores(unicos)
-    } catch { setError('Error al cargar los medidores') }
-    finally { setCargando(false) }
-  }, [ulsActivas])
+  // Cada carga lleva un número: si cambian las ULs marcadas mientras llega la
+  // respuesta de las anteriores, la vieja no pisa a la nueva. Con una barra de
+  // señal una respuesta puede tardar un minuto.
+  const cargaVigente = useRef(0)
+  // Qué ULs están ya en pantalla. cargarMedidores también se llama para
+  // refrescar (tras una marca, una foto, un pin nuevo, y cada minuto sin
+  // señal): ahí mostrar la copia — que es igual a lo que ya se ve — solo
+  // volvería a dibujar todos los pines para nada.
+  const ulsEnPantalla = useRef('')
 
+  const cargarMedidores = useCallback(async () => {
+    const n = ++cargaVigente.current
+    const clave = ulsActivas.join(',')
+    // El "Cargando..." solo si estas ULs todavía no se ven: sin señal se
+    // reintenta cada minuto con un tope de 60 s, y el aviso quedaría encima
+    // del mapa casi todo el tiempo.
+    if (ulsEnPantalla.current !== clave) setCargando(true)
+    // La copia primero, igual que la lista de ULs, si estas ULs todavía no se ven.
+    const copias = await Promise.all(ulsActivas.map((ul) => leerCopiaMedidores(idCopia, ul)))
+    if (n !== cargaVigente.current) return
+    if (ulsEnPantalla.current !== clave && copias.some(Boolean)) {
+      setMedidores(unirMedidores(copias.map((c) => c?.medidores)))
+      ulsEnPantalla.current = clave
+      setCargando(false)
+    }
+    // 1500 por UL: las rutas más largas tienen ~1000 servicios. Con 500, la
+    // E3509011 (515) dejaba 15 medidores fuera del mapa sin ningún aviso.
+    // allSettled y no all: antes una sola UL sin respuesta dejaba el mapa
+    // vacío para todas. Ahora cada una cae a su copia por separado.
+    const respuestas = await Promise.allSettled(ulsActivas.map((ul) =>
+      api.get(`/medidores?ul=${ul}&limite=1500`, { timeout: TOPE_MEDIDORES_MS })))
+    if (n !== cargaVigente.current) return
+    const resultados = ulsActivas.map((ul, i) => {
+      const r = respuestas[i]
+      const red = r.status === 'fulfilled'
+        ? { ok: true, medidores: r.value.data.medidores }
+        : { ok: false, err: r.reason }
+      if (red.ok) guardarCopiaMedidores(idCopia, ul, red.medidores)
+      return resolverCargaUl(ul, red, copias[i])
+    })
+    // Si no llegó nada nuevo y estas ULs ya se ven, se deja el mapa como está.
+    if (resultados.some((r) => r.origen === 'red') || ulsEnPantalla.current !== clave) {
+      setMedidores(unirMedidores(resultados.map((r) => r.medidores)))
+      ulsEnPantalla.current = clave
+    }
+    setSinSenalMedidores(resumenSinSenal(resultados))
+    const rechazadas = resultados.filter((r) => r.origen === 'error').map((r) => r.ul)
+    if (rechazadas.length) setError(`No se pudieron cargar los medidores de ${rechazadas.join(', ')}`)
+    setCargando(false)
+  }, [ulsActivas, idCopia])
+
+  // Solo al abrir. cargarUls cambia en cada render (lee `uls` e `idCopia`);
+  // declararla pediría la lista de nuevo en cada vuelta. Las recargas
+  // posteriores las hacen importar, eliminar y useReintentoSinSenal.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { cargarUls({ alAbrir: true }) }, [])
   useEffect(() => {
     if (ulsActivas.length > 0) cargarMedidores()
-    else setMedidores([])
+    else { cargaVigente.current++; ulsEnPantalla.current = ''; setMedidores([]); setSinSenalMedidores(null) }
     // cargarMedidores ya es estable (useCallback sobre [ulsActivas]), así que
     // declararlo no agrega vueltas: cambia exactamente cuando cambia ulsActivas.
   }, [ulsActivas, cargarMedidores])
@@ -574,6 +652,16 @@ export default function Mapa() {
     if (!uls.length) return
     try { localStorage.setItem(CLAVE_ULS, JSON.stringify(ulsActivas)) } catch { /* sin storage, da igual */ }
   }, [ulsActivas, uls])
+
+  // Sin señal: qué avisar, y volver a pedir todo solo cuando vuelva. Si la
+  // lista de ULs nunca llegó, el reintento cuenta como abrir la app, para que
+  // se restauren las ULs marcadas.
+  const avisoSinSenal = textoSinSenal(sinSenalMedidores, copiaUls, listaSinRed)
+  function reintentarCarga() {
+    cargarUls({ alAbrir: uls.length === 0 })
+    if (ulsActivas.length > 0) cargarMedidores()
+  }
+  useReintentoSinSenal(Boolean(avisoSinSenal), reintentarCarga)
 
   // Lo que TOES dice sobre los puntos donde ya no hay medidor se manda al
   // servidor, porque la marca tiene que verla el lector del mes siguiente
@@ -650,7 +738,11 @@ export default function Mapa() {
       } else {
         alert(`No se encontró "${texto}" en ${ulsActivas.length === 1 ? 'la UL ' + ulsActivas[0] : 'las ULs marcadas'}.`)
       }
-    } catch { setError('Error al buscar') }
+    } catch (err) {
+      // Sin señal lo cargado en el mapa sí se pudo revisar (arriba); lo que no
+      // se pudo es preguntarle al servidor.
+      setError(err?.response ? 'Error al buscar' : `Sin señal: "${texto}" no está en lo cargado y no se pudo preguntar al servidor.`)
+    }
   }
 
   const abrirFormulario = useCallback((medidor = null, coords = null) => {
@@ -963,8 +1055,6 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
     </div>
   )
 
-  if (error) return <Alert variant="danger" className="m-3">{error}</Alert>
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
 
@@ -1223,6 +1313,34 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               borderRadius: '20px', fontSize: '0.8rem',
             }}>
               📍 Toca el mapa para agregar un punto
+            </div>
+          )}
+
+          {/* Antes un error de carga REEMPLAZABA la app entera por un aviso
+              rojo: sin señal (2026-10-16) el lector se quedaba sin mapa, sin
+              TOES y sin los cuadros ya bajados, y sin forma de reintentar.
+              Ahora es un aviso encima del mapa y todo lo demás sigue andando. */}
+          {(error || avisoSinSenal) && (
+            <div role="status" style={{
+              position: 'absolute', top: (moviendo || modoAgregar) ? '7rem' : '3.5rem',
+              left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
+              width: 'max-content', maxWidth: 'calc(100% - 32px)',
+              backgroundColor: error ? '#fff5f5' : '#fffaf0',
+              border: `1px solid ${error ? '#fc8181' : '#f6ad55'}`,
+              borderRadius: '8px', padding: '0.35rem 0.6rem', fontSize: '0.78rem',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+            }}>
+              <span>{error ? `⚠️ ${error}` : `📵 ${avisoSinSenal}`}</span>
+              {error
+                ? (
+                  <button type="button" className="btn btn-outline-secondary btn-sm py-0"
+                    aria-label="Cerrar aviso" onClick={() => setError(null)}>✕</button>
+                )
+                : (
+                  <button type="button" className="btn btn-outline-secondary btn-sm py-0"
+                    onClick={reintentarCarga}>Reintentar</button>
+                )}
             </div>
           )}
 

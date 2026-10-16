@@ -1,6 +1,7 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react'
 import api from '../services/api'
+import { borrarCopias } from '../utils/copiaRutas'
 
 // 1. Crear el contexto
 const AuthContext = createContext()
@@ -49,10 +50,13 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  // Logout: limpia todo
+  // Logout: limpia todo, incluida la copia de las rutas que se guarda para
+  // trabajar sin señal: tiene direcciones de clientes y no tiene por qué
+  // quedar en el teléfono de la sesión anterior.
   function logout() {
     localStorage.removeItem('token')
     localStorage.removeItem('usuario')
+    borrarCopias()
     setUsuario(null)
   }
 
