@@ -122,7 +122,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 184 tests con node --test (1 se salta sin log real)
+npm test              # 205 tests con node --test (1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -227,6 +227,8 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 | `frontend/src/utils/altasToes.js` | qué servicios tomados no tienen pin, con sus resguardos (puro, testeado) |
 | `frontend/src/hooks/useNotasUl.js` + `components/NotasUl.jsx` | notas de la ruta, con copia en el teléfono |
 | `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal (IndexedDB) |
+| `frontend/src/utils/copiaRutas.js` + `utils/cargaSinSenal.js` | copia de ULs y medidores en el teléfono, y qué mostrar sin señal |
+| `frontend/src/hooks/useReintentoSinSenal.js` | vuelve a pedir ULs y medidores solo cuando vuelve la señal |
 | `frontend/src/utils/comprimirFoto.js` | achica la foto a 1920 px antes de guardarla |
 | `frontend/src/utils/reporteRuta.js` + `components/ReporteRuta.jsx` | el reporte de ruta y su texto para WhatsApp |
 | `frontend/src/hooks/useToes.js` | une parser + almacén + mapa |
@@ -282,6 +284,13 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
 - **"🚗 Ir"** en el popup abre Google Maps con la URL universal (`utils/navegacion.js`); en el APK
   Android la pasa a la app de Maps. **"◎"** (abajo a la derecha) centra en tu posición y prende el
   punto azul si estaba apagado; es un contador (`pedidoCentrar`) que escuchan los dos motores.
+- **Sin señal** (caso del 2026-10-16): cada carga de ULs y de medidores deja una copia en el
+  teléfono (`utils/copiaRutas.js`: IndexedDB, por usuario; "Salir" la borra). Al abrir se muestra
+  primero la copia y después lo que llega de la red; sin red queda la copia con el aviso "📵 Sin
+  señal: … copia guardada del dd-mm hh:mm" y un Reintentar, y se vuelve a pedir solo (al volver la
+  red, al volver a la app y cada minuto). Cada UL cae a su copia por separado. Un 403/404 no usa la
+  copia: la UL ya no es tuya. Antes un error de carga **reemplazaba la app entera** por un aviso
+  rojo, sin mapa ni TOES ni forma de reintentar. Tope de espera: 20 s la lista, 60 s los medidores.
 
 ## Trampas que ya costaron tiempo
 
@@ -346,6 +355,14 @@ Están explicadas en el README, pero conviene tenerlas presentes:
   insiste. Pasó el 2026-10-14: el pin recién se creó al recargar. Reintentar cada 10 minutos lo
   evitaría; se ofreció y no está hecho.
 - **`git merge -F -` no lee el mensaje de stdin** (`git commit -F -` sí). Escribirlo a un archivo.
+- **Bajar la versión del Android System WebView borra el IndexedDB y el localStorage de las apps**
+  (2026-10-16): una versión vieja no abre lo que escribió una más nueva y lo recrea vacío. En el APK
+  eso es la sesión, las ULs marcadas, el estado de TOES (se reconstruye releyendo los logs, pero hay
+  que volver a elegir la carpeta) y **la cola de fotos sin señal**. Antes de bajar el WebView, que no
+  quede ninguna foto esperando. A TOES le pasa lo mismo con sus lecturas pendientes (ver Estado).
+- **`indexedDB.open('x')` sin versión, desde DevTools, crea la base vacía** si no existía, y la app ya
+  no corre su `onupgradeneeded`: queda sin almacén y falla sin avisar. Para mirar una base, preguntar
+  antes con `indexedDB.databases()`. `copiaRutas.js` se repara solo; `toesStore.js` y `colaFotos.js` no.
 - **Un `element.click()` desde `webviewCdp.mjs` no es un gesto del usuario**, así que copiar al
   portapapeles falla (`writeText` y `execCommand` dan error) aunque con un dedo funcione. Para
   probar algo que pide gesto, tocar con `Input.dispatchMouseEvent` (pressed + released) en el
@@ -397,8 +414,22 @@ sigan con una versión anterior; lo del backend sí.
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
 
+En la rama `sin-senal` (sin publicar): la app abre y trabaja sin señal con la copia del teléfono
+(ver "Sin señal" en Comportamientos decididos). Probado en el teléfono con la red cortada al WebView
+(`Network.emulateNetworkConditions`), en los dos motores.
+
+**TOES y el WebView (2026-10-16):** con el Android System WebView 155, TOES deja de sincronizar ("No
+se pudo establecer la conexión"): sus consultas salen sin cookies y el servidor contesta 403. Con la
+154 funciona. Bajar de versión borra lo pendiente de TOES (su cola vive en el IndexedDB del WebView),
+así que solo se cambia con TOES sin nada pendiente. El teléfono del usuario quedó en la 154, con Play
+Store en "No actualizar apps automáticamente" (Google ya no deja apagarlo solo para el WebView). Quedan
+dos respaldos de TOES en `/data/local/tmp` del teléfono, para borrar cuando el supervisor confirme.
+
 Pendiente:
 
+- **Comprimir las respuestas del backend** (`compression` en Express): hoy no se comprimen, y con poca
+  señal bajar los medidores de una UL larga (del orden de un MB) tarda.
+- Que la cola de fotos no dependa solo del IndexedDB del WebView: un cambio de versión la borra.
 - **Servicio devuelto por la analista** (pedido del usuario: que vuelva al mapa con un color
   especial). Está en pausa hasta analizar un caso real. **El log no registra la devolución**: lo
   único que se ve es la misma orden (`ABLBELNR`) guardada de nuevo horas después, cuando el lector
