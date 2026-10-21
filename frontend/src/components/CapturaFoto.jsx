@@ -10,10 +10,12 @@ import { useState, useRef, useEffect } from 'react'
 import { Spinner } from 'react-bootstrap'
 import api from '../services/api'
 import { comprimirFoto } from '../utils/comprimirFoto'
-import { EVENTO, guardarPendiente, listarPendientes, nuevoIdLocal, subirPendiente } from '../utils/colaFotos'
+import { EVENTO, guardarPendiente, imagenDe, listarPendientes, nuevoIdLocal, subirPendiente } from '../utils/colaFotos'
 
 // Las fotos de este medidor que todavía esperan señal, con una URL local
 // para poder mostrarlas. Las URLs se liberan al cambiar la lista.
+// En el APK la imagen está en un archivo aparte (utils/archivosFotos.js), así
+// que se lee acá, solo las de este medidor.
 function usePendientesDe(instalacion) {
   const [pendientes, setPendientes] = useState([])
   useEffect(() => {
@@ -21,9 +23,11 @@ function usePendientesDe(instalacion) {
     let urls = []
     async function cargar() {
       const todas = (await listarPendientes()).filter((f) => f.instalacion === instalacion)
+      // Una imagen que no se puede leer no esconde la foto: queda el ⏳ sin miniatura.
+      const imagenes = await Promise.all(todas.map((f) => imagenDe(f).catch(() => null)))
       if (!vivo) return
-      urls.forEach((u) => URL.revokeObjectURL(u))
-      urls = todas.map((f) => URL.createObjectURL(f.blob))
+      urls.filter(Boolean).forEach((u) => URL.revokeObjectURL(u))
+      urls = imagenes.map((b) => (b ? URL.createObjectURL(b) : null))
       setPendientes(todas.map((f, i) => ({ ...f, url: urls[i] })))
     }
     cargar()
@@ -31,7 +35,7 @@ function usePendientesDe(instalacion) {
     return () => {
       vivo = false
       window.removeEventListener(EVENTO, cargar)
-      urls.forEach((u) => URL.revokeObjectURL(u))
+      urls.filter(Boolean).forEach((u) => URL.revokeObjectURL(u))
     }
   }, [instalacion])
   return pendientes
@@ -161,8 +165,10 @@ export default function CapturaFoto({ instalacion, fotosExistentes = [], onFotoS
           {pendientes.map((f) => (
             <div key={f.idLocal} title={f.error ? `${f.nombre}: ${f.error}` : `${f.nombre}: esperando señal`}
               style={{ position: 'relative' }}>
-              <img src={f.url} alt={f.nombre}
-                style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '2px dashed #d69e2e', opacity: 0.8 }} />
+              {f.url
+                ? <img src={f.url} alt={f.nombre}
+                  style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '2px dashed #d69e2e', opacity: 0.8 }} />
+                : <div style={{ width: 56, height: 56, borderRadius: 6, border: '2px dashed #d69e2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📷</div>}
               <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: '0.8rem' }}>⏳</span>
             </div>
           ))}
