@@ -112,7 +112,8 @@ PWA en Vercel ─────────────┘   /api/...            �
     (idempotentes; `desde-toes` nunca toca una instalación que ya existe, en ninguna UL).
     `POST /:instalacion/fotos` acepta `idLocal` y `fecha`.
   - `importacion`: sube KML/KMZ/Excel de SAP → preview → `POST /confirmar` (admin).
-  - `rutas`: `GET /:ul/exportar` (xlsx formato SAP), `DELETE /:ul` (admin), y las notas:
+  - `rutas`: `GET /subidas?ul=A,B` (admin: quién subió cada UL, sacado del historial de la
+    importación), `GET /:ul/exportar` (xlsx formato SAP), `DELETE /:ul` (admin), y las notas:
     `GET|POST /:ul/notas`, `PATCH /:ul/notas/:id` (cualquiera con la UL; editar u ocultar, el autor o
     admin/supervisor).
 - **Variables del backend:** `MONGODB_URI`, `JWT_SECRET`, `CLOUDINARY_CLOUD_NAME`,
@@ -122,7 +123,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 228 tests con node --test (227 pasan; 1 se salta sin log real)
+npm test              # 235 tests con node --test (234 pasan; 1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -131,7 +132,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 124 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 129 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3
@@ -226,6 +227,7 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 | `frontend/src/utils/cambiosToes.js` | qué cambios de medidor faltan en la base (puro, testeado) |
 | `frontend/src/utils/altasToes.js` | qué servicios tomados no tienen pin, con sus resguardos (puro, testeado) |
 | `frontend/src/hooks/useNotasUl.js` + `components/NotasUl.jsx` | notas de la ruta, con copia en el teléfono |
+| `frontend/src/hooks/useSubidasUl.js` | quién subió cada UL marcada (solo admin) |
 | `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal: archivos en el APK, IndexedDB en la web |
 | `frontend/src/utils/archivosFotos.js` | la cola de fotos en archivos de la app y el paso desde IndexedDB (puro, testeado) |
 | `frontend/src/utils/avisoWebView.js` | cuándo avisar que el WebView no deja sincronizar a TOES (puro, testeado) |
@@ -277,6 +279,15 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
   pendientes y nuevos, y un botón **Copiar** que arma el texto para WhatsApp. Las categorías no se
   pisan (cada tomado va a una sola según su clave), así que suman el total. "Nuevos" va aparte:
   son los que no venían en la ruta, o sea creados desde TOES en ese ciclo o todavía sin pin.
+  **Cada fila se toca** (y cada clave del detalle) y despliega su lista "instalación - serie" con
+  un **Copiar lista**, una a la vez. Sin encabezado, para pegarla directo. Los tomados van en el
+  orden en que se leyeron; los pendientes, por instalación (comparación numérica). En los cambios
+  de medidor va la serie **nueva** con "(antes X)": la lectura con clave 10 trae la vieja, la nueva
+  sale de `toes.cambiosMedidor` o, si ese bloque no llegó, de la base.
+- **"Subida por …"** (solo admin): en el bloque de TOES, entre la UL y el ciclo, quién importó la
+  ruta (`GET /rutas/subidas`). Si la subieron en partes, la primera persona "y N más". Una UL cuyos
+  medidores no vienen de una importación no muestra nada (E3559701, al 2026-10-21). Sin señal o
+  con un backend sin la ruta, tampoco: es un dato de referencia.
 - **Notas de la UL:** botón 📝 en cada UL marcada, con el número de notas a la vista. Sin señal
   muestra la última copia guardada en el teléfono.
 - **Fotos:** se achican a 1920 px (JPEG 0,75: de varios MB a unos cientos de KB) y se guardan en el
@@ -441,6 +452,15 @@ usuario el 2026-10-21 y probada:
 - con el user agent cambiado a Chrome/155 por CDP, el aviso sale en los dos motores y "Entendido"
   lo cierra; con el real (134) no sale.
 Lo que falta probar es sacar una foto de verdad con la cámara, sin señal, y verla subir sola.
+
+Encima, en la rama `reporte-y-subidas` (sin publicar, sale en la misma 2.6): las listas del reporte
+y "Subida por …". **Toca el backend** (`GET /rutas/subidas`, ruta nueva: los APK viejos no la usan).
+Probado en el teléfono el 2026-10-21 sobre E3515013, con la respuesta de `/subidas` puesta por CDP
+(`Fetch`, porque producción todavía no la tiene) igual a la que da la consulta real: "Subida por
+Luciano Trejos" entre la UL y el ciclo; casas cerradas 16 líneas y pendientes 6, todas
+"instalación - serie", una lista abierta a la vez; el cambio de medidor con "(antes …)"; "Copiar
+lista" con un toque de verdad da "✓ Copiada". La agregación se corrió solo-lectura contra la base:
+25 de 27 ULs tienen quién la subió.
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).

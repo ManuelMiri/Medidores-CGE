@@ -46,6 +46,8 @@ Y en el backend, que les sirve también a los APK viejos: rutas grandes al impor
 - **Abrir y trabajar sin señal.** Antes, abrir la app sin señal reemplazaba la pantalla entera por un aviso rojo: sin mapa, sin TOES y sin forma de reintentar. Ahora se trabaja con la copia que quedó en el teléfono la última vez que hubo señal, con un aviso que dice de cuándo es (ver "Trabajar sin señal").
 - **Las fotos que esperan señal ya no se pierden al bajar el WebView.** Pasan a ser archivos de la app en vez de vivir en el IndexedDB del WebView (ver "TOES y el Android System WebView"). Las que estaban en cola se mueven solas.
 - **Aviso del WebView 155:** si el teléfono tiene un WebView con el que TOES no sincroniza, el mapa lo dice y explica qué hacer antes de abrir TOES. El pie del panel muestra la versión del WebView junto a la de la app.
+- **Listas en el reporte de ruta:** cada fila del reporte (casas cerradas, cada tipo de casa cerrada, leídos, eriazos, cambios, otras claves, pendientes y nuevos) se toca y despliega la lista "instalación - serie" con un botón **Copiar lista**, lista para pegar. En los cambios de medidor va la serie nueva con la anterior.
+- **Quién subió cada UL** (solo admin): en el bloque de TOES, entre la UL y el ciclo, "Subida por …". Sale del historial de la importación, así que necesita el backend nuevo.
 
 Todo es del frontend: llega a los teléfonos con el APK, no con la web.
 
@@ -88,7 +90,7 @@ backend/
 ├── data/
 │   ├── medidores.json
 │   └── seed.js             # OJO: hace Medidor.deleteMany({}) — no correr contra Atlas de producción
-└── tests/                  # 11 suites, 124 tests
+└── tests/                  # 12 suites, 129 tests
 
 frontend/
 ├── capacitor.config.json   # appId cl.mla.maule, webDir dist, androidScheme https
@@ -122,6 +124,7 @@ frontend/
     │   ├── useEnviosToes.js    # manda el cambio de medidor y crea los pines que faltan
     │   ├── useColaFotos.js     # sube las fotos que esperaban señal
     │   ├── useNotasUl.js       # notas de la ruta, con copia en el teléfono
+    │   ├── useSubidasUl.js     # quién subió cada UL marcada (solo admin)
     │   ├── useReintentoSinSenal.js  # vuelve a pedir rutas y medidores cuando vuelve la señal
     │   └── useMiUbicacionGL.js # el punto azul en MapLibre
     ├── utils/                  # las reglas puras llevan su .test.js al lado
@@ -660,6 +663,7 @@ Antes había dos formas distintas de verificar el token: una función local `ver
 | POST | `/api/medidores/desde-toes` | autenticado | Crea el pin de un servicio tomado sin pin (GPS del lector, dirección y poste). Solo completa los campos vacíos de un pin que creó la app; nunca toca otro |
 | POST | `/api/importacion/preview` | **admin** | Parsea un `.kml`/`.xlsx` y devuelve lo que falta, sin escribir. Informa repetidos y lupas |
 | POST | `/api/importacion/confirmar` | **admin** | Inserta los medidores del preview y agrega los lupas que falten (`lupas`, opcional) |
+| GET | `/api/rutas/subidas` | **admin** | Quién subió cada UL (`ul=A,B` opcional), sacado del historial de la importación. Si la subieron en partes, la primera persona y cuántas más |
 | GET | `/api/rutas/:ul/exportar` | **admin**, supervisor | Exporta una UL completa |
 | DELETE | `/api/rutas/:ul` | **admin** | Borra todos los medidores de una UL |
 | GET | `/api/rutas/:ul/notas` | con la UL | Notas visibles de la ruta |
@@ -699,14 +703,14 @@ El modelo `Medidor` mantiene **un solo índice**: `{ unidadDeLectura: 1 }`, que 
 
 ## Pruebas
 
-**Backend — 124 tests en 11 suites, todos pasando.** Jest + Supertest + `mongodb-memory-server`: los tests levantan un MongoDB en memoria, así que corren en cualquier máquina sin configurar nada y sin tocar el Atlas real. Cubren auth (registro, login, logout, token invalidado rechazado), CRUD de medidores con autorización por roles (incluido que un lector no lea una UL ajena), mover un pin, marca permanente, cambio de medidor y pin desde TOES (los dos idempotentes), fotos (sin duplicar al reintentar), notas de la UL, la caché de ULs con un cluster real, rutas e importación (rutas grandes, instalaciones repetidas y medidor lupa).
+**Backend — 129 tests en 12 suites, todos pasando.** Jest + Supertest + `mongodb-memory-server`: los tests levantan un MongoDB en memoria, así que corren en cualquier máquina sin configurar nada y sin tocar el Atlas real. Cubren auth (registro, login, logout, token invalidado rechazado), CRUD de medidores con autorización por roles (incluido que un lector no lea una UL ajena), mover un pin, marca permanente, cambio de medidor y pin desde TOES (los dos idempotentes), fotos (sin duplicar al reintentar), notas de la UL, quién subió cada UL (importando por la ruta real), la caché de ULs con un cluster real, rutas e importación (rutas grandes, instalaciones repetidas y medidor lupa).
 
 ```bash
 cd backend
 npm test
 ```
 
-**Frontend — 228 tests** (227 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, qué cambios de medidor faltan en la base, qué servicios tomados no tienen pin (con sus resguardos), el reporte de ruta, el agrupado por punto, qué ULs se restauran al abrir, cuándo sirve la copia sin señal, las medidas de las fotos comprimidas y cuándo se reintenta subirlas, la cola de fotos en archivos (con un sistema de archivos falso: escrituras cortadas, el paso desde IndexedDB sin perder ninguna), cuándo avisar del WebView, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 235 tests** (234 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, qué cambios de medidor faltan en la base, qué servicios tomados no tienen pin (con sus resguardos), el reporte de ruta y sus listas para copiar (con la serie nueva en los cambios), el agrupado por punto, qué ULs se restauran al abrir, cuándo sirve la copia sin señal, las medidas de las fotos comprimidas y cuándo se reintenta subirlas, la cola de fotos en archivos (con un sistema de archivos falso: escrituras cortadas, el paso desde IndexedDB sin perder ninguna), cuándo avisar del WebView, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
