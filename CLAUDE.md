@@ -392,8 +392,9 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-Producción (Railway y Vercel) está en `61ef7af`, publicado el 2026-10-14 en la noche (los dos
-status en `success`; revisado el 2026-10-21, `origin/main` no se movió desde entonces). Tiene:
+Producción está en `bd933de`, publicado el 2026-10-21 (`main` y `Develop`; Vercel en `success` y
+la web ya sirve el bundle con "copia guardada"). El backend no cambia desde `61ef7af`, del
+2026-10-14. Tiene:
 - lo anterior: TOES, la marca permanente, MapLibre, el buscador por UL y el panel desplegable;
 - de la rama `terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir",
   "centrar en mí", hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB),
@@ -401,22 +402,26 @@ status en `success`; revisado el 2026-10-21, `origin/main` no se movió desde en
   `GET /medidores?ul=`;
 - de la rama `ajustes-terreno`: cambio de medidor desde TOES, pin automático (con dirección y poste
   del log, `FORMATO_PARSER` 3, y sin aviso en el popup), notas por UL, fotos comprimidas con cola
-  sin señal y el reporte de ruta (con el cierre "Especial" bien leído).
+  sin señal y el reporte de ruta (con el cierre "Especial" bien leído);
+- de la rama `sin-senal`: la app abre y trabaja sin señal con la copia del teléfono (ver "Sin
+  señal" en Comportamientos decididos), y el README al día.
 
 Verificado en producción: se creó el pin 103694009 (E3550001) y E713709426 quedó con la serie
 nueva.
 
 El APK a repartir es la **2.5 (code 8)**, build de debug, copiada como `MLA-Maule-2.5.apk` en
 `frontend/android/app/build/outputs/apk/debug/`. Lo de solo frontend no llega a los teléfonos que
-sigan con una versión anterior; lo del backend sí.
+sigan con una versión anterior; lo del backend sí. **El modo sin señal no está en ningún APK
+repartido**: el teléfono del usuario tiene un build de debug del 2026-10-16 que ya lo trae (también
+dice 2.5). Para repartirlo hay que subir a 2.6 (code 9).
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
 
-En la rama `sin-senal` (sin publicar): la app abre y trabaja sin señal con la copia del teléfono
-(ver "Sin señal" en Comportamientos decididos). Probado en el teléfono con la red cortada al WebView
-(`Network.emulateNetworkConditions`), en los dos motores. En la misma rama quedó el README al día
-(2026-10-21): versión, conteos, estructura, sin señal, WebView y la descarga de rutas.
+El modo sin señal está probado en el teléfono con la red cortada al WebView
+(`Network.emulateNetworkConditions`), en los dos motores, el 2026-10-16 y de nuevo el 2026-10-21:
+con la red cortada, el mapa con la copia y el aviso "📵"; al volver la red, el aviso se va solo en
+menos de 5 s.
 
 **TOES y el WebView (2026-10-16):** con el Android System WebView 155, TOES deja de sincronizar ("No
 se pudo establecer la conexión"): sus consultas salen sin cookies y el servidor contesta 403. Con la
