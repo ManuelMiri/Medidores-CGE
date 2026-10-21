@@ -122,7 +122,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 205 tests con node --test (1 se salta sin log real)
+npm test              # 206 tests con node --test (205 pasan; 1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -392,20 +392,19 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-Al 2026-10-14 (noche), producción (Railway y Vercel) tiene:
+Producción (Railway y Vercel) está en `61ef7af`, publicado el 2026-10-14 en la noche (los dos
+status en `success`; revisado el 2026-10-21, `origin/main` no se movió desde entonces). Tiene:
 - lo anterior: TOES, la marca permanente, MapLibre, el buscador por UL y el panel desplegable;
 - de la rama `terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir",
   "centrar en mí", hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB),
   instalaciones repetidas en el archivo, medidor lupa y el control de ULs del lector en
   `GET /medidores?ul=`;
-- de la rama `ajustes-terreno` (publicada en `ae1eca2`): cambio de medidor desde TOES, pin
-  automático, notas por UL y fotos comprimidas con cola sin señal.
+- de la rama `ajustes-terreno`: cambio de medidor desde TOES, pin automático (con dirección y poste
+  del log, `FORMATO_PARSER` 3, y sin aviso en el popup), notas por UL, fotos comprimidas con cola
+  sin señal y el reporte de ruta (con el cierre "Especial" bien leído).
 
 Verificado en producción: se creó el pin 103694009 (E3550001) y E713709426 quedó con la serie
-nueva. Después de `ae1eca2`, en la rama `ajustes-terreno`:
-- se sacó el aviso del popup de los pines creados desde TOES;
-- los pines nuevos llevan dirección y poste del log (`FORMATO_PARSER` 3);
-- se agregó el reporte de ruta.
+nueva.
 
 El APK a repartir es la **2.5 (code 8)**, build de debug, copiada como `MLA-Maule-2.5.apk` en
 `frontend/android/app/build/outputs/apk/debug/`. Lo de solo frontend no llega a los teléfonos que
@@ -416,7 +415,8 @@ marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
 
 En la rama `sin-senal` (sin publicar): la app abre y trabaja sin señal con la copia del teléfono
 (ver "Sin señal" en Comportamientos decididos). Probado en el teléfono con la red cortada al WebView
-(`Network.emulateNetworkConditions`), en los dos motores.
+(`Network.emulateNetworkConditions`), en los dos motores. En la misma rama quedó el README al día
+(2026-10-21): versión, conteos, estructura, sin señal, WebView y la descarga de rutas.
 
 **TOES y el WebView (2026-10-16):** con el Android System WebView 155, TOES deja de sincronizar ("No
 se pudo establecer la conexión"): sus consultas salen sin cookies y el servidor contesta 403. Con la
@@ -448,6 +448,9 @@ Pendiente:
   el usuario no recuerda cuál fue la "Mica quemada". La próxima vez que marque una en terreno va a
   anotar la hora o la instalación: buscar ese bloque y armar la tabla. Con eso, "sin empalme" puede
   pasar a proponerse desde TOES; hasta entonces, a mano.
+- **Decirle al lector qué clave elegir en TOES** en un punto con marca permanente: `etiquetas` de
+  `clavesToes.json` ya trae `textoToes` por tipo ("26 - Sitio eriazo"), pero el popup no lo usa.
+  (Las "etiquetas anticipadas" del plan original son la marca permanente: no hace falta otro campo.)
 - **El medidor lupa en TOES:** no se sabe si TOES lo muestra como una lectura aparte del mismo
   servicio (mismo `ANLAGE`, otro `GERAET`). Si es así, el índice por instalación de `useToes` los
   juntaría. Revisar con un log real cuando toque uno.

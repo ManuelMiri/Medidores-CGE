@@ -189,12 +189,12 @@ Cuando el parser empieza a sacar un dato nuevo del log, se sube `FORMATO_PARSER`
 - `parsearLog` devuelve un contador `invalidos`. Si TOES cambia de formato ese número sube y el panel lo muestra — es el canario, no un error silencioso.
 - **Las claves están en `clavesToes.json`**, con la tabla oficial de la columna "Normal" de TOES: 34 códigos, 20 activos y 14 marcados `activo: false`. Los inactivos siguen ahí porque un log viejo todavía puede traerlos, y salen con el color neutro. Una clave que no esté en la tabla tampoco rompe nada: sale como "clave NN" en neutro.
 - Las 7 claves que aparecieron en los logs reales (`01, 02, 08, 09, 11, 20, 26`) son **todas activas**, lo que encaja con que TOES solo escriba códigos vigentes.
-- `ZZABLHINW2` (valores `"04"`, `"32"`) sigue sin significado conocido. Se ignora.
+- `ZZABLHINW2: "04"` es el lector confirmando una lectura que TOES encontró rara (esas vienen con `MOT_LEC_INVEROSIMIL`). No tiene que ver con una devolución de la analista. El `"32"` sigue sin significado conocido. El parser no usa ninguno de los dos.
 
 ### Lo que se mide sobre datos reales
 
 - **Cruce con la base:** 152 servicios tomados en dos días → 148 calzan con medidores de la misma UL, 0 en otra UL, 4 no existen en la base. La UL `E3505704` tiene 281 medidores, así que el mapa muestra **148 marcadores menos (52,7 %)**.
-- Esos 4 sin punto en el mapa son el caso real de "tomados sin punto": el panel los lista con un botón para copiarlos, porque son candidatos a mapear.
+- Esos 4 sin punto en el mapa son el caso real de "tomados sin punto": el panel los lista con un botón para copiarlos, porque son candidatos a mapear. Desde la 2.4 la app les crea el pin sola con el GPS del lector (ver "Cambio de medidor y servicios sin pin"); la lista queda para los que frenan los resguardos.
 - **Rendimiento:** el log completo de 744 KB se parsea en 3 ms; la peor lectura incremental individual fue de 0,1 ms. Con un sondeo de 5 s el margen es de unas 1600×, así que el costo real estará en el puente nativo, no en el parseo.
 - **Simulación incremental:** los dos logs alimentados en 254 trozos de tamaño variable, **todos cortando dentro de un bloque JSON** → 159 eventos, cero duplicados, estado final idéntico al de una pasada única.
 
@@ -208,13 +208,13 @@ Hecho (lo que no dice "APK" se puede verificar en el navegador):
 - Interruptor **"Solo casas cerradas (N)"** para el repaso: muestra solo lo tomado con una clave de `clavesRepaso` en `clavesToes.json` (01, 08, 09, 30), en firme y sin marcas permanentes. No se recuerda entre sesiones a propósito. Como el interruptor vive en un bloque del panel que se esconde si ninguna UL marcada tiene lecturas, el mapa muestra además un aviso con "Ver todo": ya pasó que quedó prendido, se marcó una ruta recién importada y el mapa salió vacío sin explicación.
 - **Nunca se borra** un punto, una foto, una descripción ni una etiqueta: solo cambia la visibilidad.
 - **Lectura automática de `/TOES` en el APK** por el Storage Access Framework. El lector elige la carpeta una sola vez y desde ahí la app la relee sola cada 5 s, sin volver a pedir nada. Ver "Lectura automática de /TOES" más abajo.
+- **Probada con TOES real en terreno**, que eran los 2 criterios de aceptación que los tests no podían cubrir: el permiso de `/TOES` sobrevive a cerrar la app y a reinstalar el APK con `adb install -r`, y lo que TOES guarda llega al mapa (el 14 de octubre creó solo el pin 103694009 y actualizó la serie de E713709426). El punto tomado no desaparece mientras TOES está adelante sino **al volver al mapa**, porque Android congela los timers del WebView en segundo plano.
 - **Los pines van agrupados por punto** (`agruparCercanos`, 5 m), así que la decisión es por grupo y no por medidor: el pin se oculta solo cuando no queda ningún servicio por visitar, el contador cuenta los que quedan (no los que hay), y se atenúa solo si todo lo que queda en ese pin ya fue tomado. Un medidor elegido a propósito — tocado o buscado — se muestra aunque TOES lo haya tomado; sin esa excepción, buscar una instalación ya tomada no mostraría nada y el buscador parecería roto.
 
 Pendiente:
 
-- **Probar los 2 últimos criterios de aceptación en el teléfono.** El código de los 11 está escrito y compilado, pero el permiso persistente de `/TOES` y el "el punto desaparece en 5-10 s" solo se pueden dar por buenos con TOES real guardando un servicio. Todo lo demás está cubierto por tests.
-- **Etiquetas anticipadas** (sitio eriazo / sin empalme / no encontrado) para avisarle al lector qué clave elegir en TOES. Es la única parte que sí toca el backend, porque las etiquetas son datos propios de la app y se comparten entre usuarios: campo `etiquetas: [String]` en `models/Medidor.js` y en la whitelist `camposPermitidos` de `rutas/medidores.js`. **Nunca cambiar etiquetas automáticamente.**
-- **Una sola etiqueta anticipada sigue sin clave que sugerir.** "Sitio eriazo" y "No encontrado" ya apuntan a las claves 26 y 02. "Sin empalme" no: la clave 16 existe pero está inactiva, así que hasta que CGE diga con cuál se reemplaza, esa etiqueta no sugiere ninguna.
+- **Decirle al lector qué clave elegir en TOES** en un punto marcado. Las "etiquetas anticipadas" que se planearon (sitio eriazo / no encontrado / sin empalme) quedaron hechas como la marca permanente (ver "Memoria de terreno"), que ya se comparte entre usuarios por el backend. Lo que falta es mostrar en el popup el `textoToes` de cada tipo, que ya está en `etiquetas` de `clavesToes.json` ("26 - Sitio eriazo", "02 - Medidor no ubicado") y hoy no se usa.
+- **"Sin empalme" sigue sin clave que sugerir.** "Sitio eriazo" y "No encontrado" apuntan a las claves 26 y 02. La clave 16 existe pero está inactiva, y el lector lo marca en el submenú de la 05 (ver el punto siguiente).
 - **El submenú de la clave 05 ("Problema en medidor – Sin lectura").** "Sin empalme" y "Mica quemada" se eligen ahí, y `METERREADINGNOTE` solo trae `05`. Revisados los 55 logs de un teléfono, el único campo que cambia es **`COD_ESTADO_MED`**: viene `null` en todos los bloques salvo en los de clave 05, donde trae `"4"` o `"6"`. Falta saber qué opción es cada código; para eso hay que anotar la instalación o la hora la próxima vez que se marque una en terreno. Con esa tabla, "sin empalme" puede pasar a proponerse desde TOES.
 - **Crear una cuenta `lector`** con `unidadesLectura: ["E3505704"]` para probar el camino de permisos real.
 
@@ -492,6 +492,21 @@ Cuatro decisiones que no son obvias:
 `CAPAS_RETIRADAS` borra al activarse lo que quedó cacheado de capas que ya no se usan, para que no ocupe
 parte de las 1.500 entradas hasta que la poda FIFO lo alcance.
 
+**Descargar una ruta con wifi.** Cada UL marcada tiene, en el APK, un botón para bajar los cuadros
+del mapa de esa ruta antes de salir. Van a un **segundo caché** (`tiles-rutas-v1`) que **no se poda**:
+si se podara, una jornada larga mirando el mapa terminaría botando justo la ruta que se bajó para
+trabajar sin señal. Al responder, el service worker mira primero ese caché, y un cuadro que ya estaba
+en el caché podable se pasa al de rutas en vez de volver a bajarse.
+
+- **Qué cuadros** lo decide `utils/tilesDeRuta.js` (puro, testeado): el rectángulo completo en los
+  zooms bajos, que son pocos tiles, y solo la vecindad de cada medidor en los altos. Van ordenados por
+  zoom, así que si se corta por el tope queda lo general.
+- **Antes de empezar se pregunta**, con la cantidad de cuadros y los MB estimados: son decenas de MB,
+  y empezar sin avisar con datos móviles sería gastarle el plan al lector.
+- **Las coordenadas salen de la base** (`medidores[].ubicacion`) y **nunca del log de TOES**: pedir un
+  tile le manda esa coordenada a Esri, y las del log son datos de clientes.
+- Si se acaba el espacio, la descarga se corta y avisa, con lo bajado hasta ahí intacto.
+
 ### Cuántos tiles cuesta cada capa
 
 Medido con DevTools sobre el caché real del teléfono, con 1.093 tiles acumulados:
@@ -657,7 +672,7 @@ Dos archivos de entrada, para poder testear sin conexión real a MongoDB ni puer
 
 `GET /api/medidores/uls` calcula los valores distintos de `unidadDeLectura` con un `distinct` sobre toda la colección, caro de repetir en cada llamada. `utils/cache.js` guarda el resultado en memoria con TTL de 60 s.
 
-Toda ruta que crea o borra medidores (crear uno, eliminar uno, confirmar una importación, eliminar una ruta) llama a `cache.invalidarUls()`, porque puede cambiar qué ULs existen. Con el cluster eso no alcanza en un solo proceso: cada worker tiene su propio almacén, así que el que invalida le avisa al proceso principal y este reenvía el aviso a los demás (`reenviarInvalidaciones`). Antes una ruta recién importada podía no aparecer durante un minuto, según qué worker atendiera. `tests/cache.test.js` lo prueba con un cluster real de 3 workers.
+Toda ruta que crea o borra medidores (crear uno, crear un pin desde TOES, eliminar uno, confirmar una importación, eliminar una ruta) llama a `cache.invalidarUls()`, porque puede cambiar qué ULs existen. Con el cluster eso no alcanza en un solo proceso: cada worker tiene su propio almacén, así que el que invalida le avisa al proceso principal y este reenvía el aviso a los demás (`reenviarInvalidaciones`). Antes una ruta recién importada podía no aparecer durante un minuto, según qué worker atendiera. `tests/cache.test.js` lo prueba con un cluster real de 3 workers.
 
 El modelo `Medidor` mantiene **un solo índice**: `{ unidadDeLectura: 1 }`, que acelera los filtros por ruta y ese `distinct`. Se quitaron a propósito (commit `9cb382e`) el índice de texto y el `2dsphere`: el de texto no se usaba porque el buscador va por `$regex`, y el `2dsphere` solo lo usaba la ruta `/cercanos`, que el frontend nunca llamaba. Los dos hacían más lentos los inserts al importar rutas de cientos de medidores.
 
