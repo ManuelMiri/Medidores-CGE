@@ -50,6 +50,69 @@ function medidorAFilaSap(medidor) {
   }
 }
 
+// El texto que deja rutas/importacion.js en el historial de cada medidor que
+// crea. Si cambia allá, cambia acá: el test de /subidas importa por la ruta
+// real, así que una diferencia no pasa callada.
+const ACCION_IMPORTACION = 'Creado por importación de ruta'
+
+// GET /api/rutas/subidas?ul=A,B — solo admin
+// Quién subió (importó) cada ruta. No hay un registro aparte de importaciones:
+// sale del historial de los medidores, que guarda el nombre de quien confirmó.
+// Si la UL se subió en partes, cuenta la primera subida y `otros` dice cuántas
+// personas más le agregaron medidores. Una UL sin medidores importados (todos
+// creados a mano o desde TOES) no aparece.
+router.get('/subidas', proteger, soloRol('admin'), async (req, res) => {
+  try {
+    const uls = String(req.query.ul ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    const filtro = { 'historial.accion': ACCION_IMPORTACION }
+    if (uls.length) filtro.unidadDeLectura = { $in: uls }
+
+    const filas = await Medidor.aggregate([
+      { $match: filtro },
+      { $unwind: '$historial' },
+      { $match: { 'historial.accion': ACCION_IMPORTACION } },
+      {
+        $group: {
+          _id: { ul: '$unidadDeLectura', usuario: '$historial.usuario' },
+          nombre: { $first: '$historial.nombre' },
+          fecha: { $min: '$historial.fecha' },
+          medidores: { $sum: 1 },
+        },
+      },
+      { $sort: { fecha: 1 } },
+    ])
+
+    // El nombre se guarda en el historial desde siempre, pero por si falta,
+    // se busca en la cuenta.
+    const sinNombre = filas.filter((f) => !f.nombre && f._id.usuario).map((f) => f._id.usuario)
+    const nombres = new Map()
+    if (sinNombre.length) {
+      for (const u of await Usuario.find({ _id: { $in: sinNombre } }).select('nombre')) {
+        nombres.set(String(u._id), u.nombre)
+      }
+    }
+
+    const porUl = new Map()
+    for (const f of filas) {
+      const previa = porUl.get(f._id.ul)
+      if (previa) {
+        previa.otros++
+        continue
+      }
+      porUl.set(f._id.ul, {
+        ul: f._id.ul,
+        nombre: f.nombre || nombres.get(String(f._id.usuario)) || null,
+        fecha: f.fecha,
+        medidores: f.medidores,
+        otros: 0,
+      })
+    }
+    res.json({ subidas: [...porUl.values()] })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/rutas/:ul/exportar — admin y supervisor
 // Descarga todos los medidores de esa UL en un .xlsx con las mismas
 // columnas que usa SAP.
