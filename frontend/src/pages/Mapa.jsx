@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, LayersControl, LayerGroup, Marker, Popup, useM
 import { Spinner, Form, InputGroup, Button, Modal } from 'react-bootstrap'
 import api from '../services/api'
 import { App } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { useAuth } from '../context/AuthContext'
 import CargaKml from '../components/CargaKml'
 import CapturaFoto from '../components/CapturaFoto'
@@ -24,6 +25,7 @@ import { agruparCercanos } from '../utils/agrupar'
 import { ulsARestaurar, ulsTrasRecargar } from '../utils/ulsActivas'
 import { leerCopiaUls, guardarCopiaUls, leerCopiaMedidores, guardarCopiaMedidores } from '../utils/copiaRutas'
 import { sirveLaCopia, resolverCargaUl, unirMedidores, resumenSinSenal, textoSinSenal } from '../utils/cargaSinSenal'
+import { avisoWebView, versionWebView } from '../utils/avisoWebView'
 import { URL_CALLES, URL_FOTO, URL_FOTO_RESPALDO, URL_CAMINOS, nombreDeCapa } from '../config/capasMapa'
 import { descargarRuta, hayPrecarga, presupuestoDeRuta } from '../utils/precargaTiles'
 import { medicionActiva, registrarMapaParaMedicion } from '../utils/medirFluidez'
@@ -252,6 +254,11 @@ function leerUlsGuardadas() {
 // ulsActivas todavía es [], y pisaría lo guardado antes de poder leerlo.
 const ulsIniciales = leerUlsGuardadas()
 
+// El WebView no cambia sin reiniciar la app, así que basta mirarlo una vez.
+// Ver utils/avisoWebView.js: con la 155 TOES no sincroniza.
+const AVISO_WEBVIEW = avisoWebView(navigator.userAgent, Capacitor.isNativePlatform())
+const VERSION_WEBVIEW = versionWebView(navigator.userAgent)
+
 // Con poca señal una petición no falla: queda colgada minutos. Sin tope, la
 // app se quedaba en "Cargando sistema..." indefinidamente. La lista de ULs es
 // chica; los medidores de una UL larga pesan del orden de un MB y con una
@@ -349,7 +356,13 @@ function PieDelPanel() {
         style={{ fontSize: '0.72rem' }} onClick={cambiarMotor}>
         {MOTOR_GL ? 'usar el mapa clásico' : 'volver al mapa nuevo'}
       </button>
-      {version && <div style={{ marginTop: '0.2rem' }}>Versión {version}</div>}
+      {/* La del WebView va al lado porque de ella depende que TOES sincronice
+          (utils/avisoWebView.js), y así se lee sin entrar a los ajustes. */}
+      {version && (
+        <div style={{ marginTop: '0.2rem' }}>
+          Versión {version}{VERSION_WEBVIEW ? ` · WebView ${VERSION_WEBVIEW}` : ''}
+        </div>
+      )}
     </div>
   )
 }
@@ -365,6 +378,9 @@ export default function Mapa() {
   const [copiaUls, setCopiaUls]         = useState(null)  // fecha, si la lista de ULs es la copia
   const [listaSinRed, setListaSinRed]   = useState(false) // ni red ni copia de la lista
   const [sinSenalMedidores, setSinSenalMedidores] = useState(null)
+  // "Entendido" lo cierra hasta la próxima vez que se abra la app: no se
+  // recuerda, porque mientras siga la 155 el problema sigue.
+  const [webViewEntendido, setWebViewEntendido] = useState(false)
   // La copia del teléfono va por usuario: en un teléfono compartido el que
   // entra después no ve las rutas del anterior.
   const idCopia = usuario.id ?? usuario.email
@@ -1319,28 +1335,48 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
           {/* Antes un error de carga REEMPLAZABA la app entera por un aviso
               rojo: sin señal (2026-10-16) el lector se quedaba sin mapa, sin
               TOES y sin los cuadros ya bajados, y sin forma de reintentar.
-              Ahora es un aviso encima del mapa y todo lo demás sigue andando. */}
-          {(error || avisoSinSenal) && (
-            <div role="status" style={{
+              Ahora es un aviso encima del mapa y todo lo demás sigue andando.
+              El del WebView va en la misma columna, arriba, para que los dos
+              se lean si aparecen juntos. */}
+          {((AVISO_WEBVIEW && !webViewEntendido) || error || avisoSinSenal) && (
+            <div style={{
               position: 'absolute', top: (moviendo || modoAgregar) ? '7rem' : '3.5rem',
               left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
               width: 'max-content', maxWidth: 'calc(100% - 32px)',
-              backgroundColor: error ? '#fff5f5' : '#fffaf0',
-              border: `1px solid ${error ? '#fc8181' : '#f6ad55'}`,
-              borderRadius: '8px', padding: '0.35rem 0.6rem', fontSize: '0.78rem',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem',
             }}>
-              <span>{error ? `⚠️ ${error}` : `📵 ${avisoSinSenal}`}</span>
-              {error
-                ? (
-                  <button type="button" className="btn btn-outline-secondary btn-sm py-0"
-                    aria-label="Cerrar aviso" onClick={() => setError(null)}>✕</button>
-                )
-                : (
-                  <button type="button" className="btn btn-outline-secondary btn-sm py-0"
-                    onClick={reintentarCarga}>Reintentar</button>
-                )}
+              {AVISO_WEBVIEW && !webViewEntendido && (
+                <div role="alert" style={{
+                  backgroundColor: '#fff5f5', border: '2px solid #e53e3e',
+                  borderRadius: '8px', padding: '0.45rem 0.6rem', fontSize: '0.78rem',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                }}>
+                  <span>⚠️ {AVISO_WEBVIEW}</span>
+                  <button type="button" className="btn btn-outline-danger btn-sm py-0"
+                    onClick={() => setWebViewEntendido(true)}>Entendido</button>
+                </div>
+              )}
+              {(error || avisoSinSenal) && (
+                <div role="status" style={{
+                  backgroundColor: error ? '#fff5f5' : '#fffaf0',
+                  border: `1px solid ${error ? '#fc8181' : '#f6ad55'}`,
+                  borderRadius: '8px', padding: '0.35rem 0.6rem', fontSize: '0.78rem',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                }}>
+                  <span>{error ? `⚠️ ${error}` : `📵 ${avisoSinSenal}`}</span>
+                  {error
+                    ? (
+                      <button type="button" className="btn btn-outline-secondary btn-sm py-0"
+                        aria-label="Cerrar aviso" onClick={() => setError(null)}>✕</button>
+                    )
+                    : (
+                      <button type="button" className="btn btn-outline-secondary btn-sm py-0"
+                        onClick={reintentarCarga}>Reintentar</button>
+                    )}
+                </div>
+              )}
             </div>
           )}
 
