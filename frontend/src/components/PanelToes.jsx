@@ -5,6 +5,7 @@
 import { useRef, useState } from 'react'
 import { esRepaso } from '../utils/vistaMarcador'
 import { armarReporte } from '../utils/reporteRuta'
+import { useSubidasUl } from '../hooks/useSubidasUl'
 import ReporteRuta from './ReporteRuta'
 
 function formatearCiclo(ciclo) {
@@ -21,12 +22,14 @@ function haceCuanto(fecha) {
   return `hace ${Math.round(seg / 3600)} h`
 }
 
-export default function PanelToes({ toes, medidores, ulsActivas }) {
+export default function PanelToes({ toes, medidores, ulsActivas, esAdmin = false }) {
   const archivoRef = useRef(null)
   const [aviso, setAviso] = useState(null)
   const [mostrarSinPunto, setMostrarSinPunto] = useState(false)
   // UL cuyo reporte está abierto (popup), o null.
   const [reporteDe, setReporteDe] = useState(null)
+  // Solo admin: quién subió cada UL, en una línea chica entre la UL y el ciclo.
+  const subidas = useSubidasUl(ulsActivas, esAdmin)
 
   const {
     porUl, indice, verTomados, setVerTomados, procesando, invalidos, ultimaRevision,
@@ -168,6 +171,12 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
                       </span>
                     )}
                   </div>
+                  {subidas[ul]?.nombre && (
+                    <div style={{ fontSize: '0.72rem', color: '#718096' }}>
+                      Subida por {subidas[ul].nombre}
+                      {subidas[ul].otros > 0 && ` y ${subidas[ul].otros} más`}
+                    </div>
+                  )}
                   <div style={{ color: '#4a5568' }}>
                     Ciclo {formatearCiclo(d.ciclo)}
                     {d.descartado && ' (descartado)'}
@@ -262,7 +271,10 @@ export default function PanelToes({ toes, medidores, ulsActivas }) {
 
           {reporteDe && (
             <ReporteRuta
-              reporte={armarReporte({ ul: reporteDe, datos: porUl[reporteDe], medidores, config: toes.config })}
+              reporte={armarReporte({
+                ul: reporteDe, datos: porUl[reporteDe], medidores, config: toes.config,
+                cambiosMedidor: toes.cambiosMedidor,
+              })}
               onCerrar={() => setReporteDe(null)} />
           )}
 

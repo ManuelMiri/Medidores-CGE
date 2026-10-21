@@ -1160,7 +1160,8 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               )}
             </div>
 
-            <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
+            <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas}
+              esAdmin={usuario.rol === 'admin'} />
             {colaFotos.pendientes.length > 0 && (
               <div style={{
                 margin: '0 0.75rem 0.5rem', padding: '0.4rem 0.5rem', borderRadius: 6,
