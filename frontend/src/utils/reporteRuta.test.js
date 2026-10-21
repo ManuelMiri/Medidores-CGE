@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { armarReporte, textoReporte } from './reporteRuta.js'
+import { armarReporte, textoLista, textoReporte } from './reporteRuta.js'
 import config from '../config/clavesToes.json' with { type: 'json' }
 
 const UL = 'E3550001'
@@ -42,11 +42,12 @@ describe('armarReporte', () => {
 
   test('separa las casas cerradas por tipo, sin el prefijo repetido', () => {
     const r = armarReporte(escenario())
-    assert.deepEqual(r.cerradas.detalle, [
+    const sinItems = (d) => d.map(({ clave, nombre, n }) => ({ clave, nombre, n }))
+    assert.deepEqual(sinItems(r.cerradas.detalle), [
       { clave: '01', nombre: 'Medidor interior', n: 2 },
       { clave: '09', nombre: 'Medidor mal ubicado', n: 1 },
     ])
-    assert.deepEqual(r.otras.detalle, [{ clave: '11', nombre: 'Posible CNR', n: 1 }])
+    assert.deepEqual(sinItems(r.otras.detalle), [{ clave: '11', nombre: 'Posible CNR', n: 1 }])
   })
 
   test('nuevos: los creados desde TOES en este ciclo y los que aún no tienen pin', () => {
@@ -63,6 +64,82 @@ describe('armarReporte', () => {
     const r = armarReporte({ ul: UL, datos: undefined, medidores: [], config })
     assert.equal(r.total, 0)
     assert.equal(r.avance, 0)
+  })
+})
+
+describe('listas para copiar', () => {
+  // Las series: la del log es S-<instalación>; la de la base, B-<instalación>.
+  // Las fechas van al revés del orden de la ruta, para ver que se ordena por
+  // cuándo se leyó y no por cómo vino el Map.
+  function conSeries() {
+    const e = escenario()
+    let minuto = 59
+    for (const [inst, t] of e.datos.tomados) {
+      t.medidor = 'S-' + inst
+      t.fecha = `2026-10-14T10:${String(minuto--).padStart(2, '0')}:00`
+    }
+    for (const m of e.medidores) m.numeroDeSerie = 'B-' + m.instalacion
+    return e
+  }
+  const instalaciones = (items) => items.map((x) => x.instalacion)
+
+  test('cada categoría trae su lista, del mismo largo que su número', () => {
+    const r = armarReporte(conSeries())
+    assert.equal(r.listas.leidos.length, r.leidos)
+    assert.equal(r.listas.cerradas.length, r.cerradas.total)
+    assert.equal(r.listas.eriazos.length, r.eriazos)
+    assert.equal(r.listas.cambios.length, r.cambios)
+    assert.equal(r.listas.otras.length, r.otras.total)
+    assert.equal(r.listas.pendientes.length, r.pendientes)
+    assert.equal(r.listas.nuevos.length, r.nuevos)
+  })
+
+  test('las casas cerradas van con la serie del log, en el orden en que se leyeron', () => {
+    const r = armarReporte(conSeries())
+    assert.deepEqual(instalaciones(r.listas.cerradas), ['P5', 'P4', 'P3'])
+    assert.equal(r.listas.cerradas[0].serie, 'S-P5')
+  })
+
+  test('cada clave del detalle trae su propia lista', () => {
+    const r = armarReporte(conSeries())
+    const interior = r.cerradas.detalle.find((x) => x.clave === '01')
+    assert.deepEqual(instalaciones(interior.items), ['P4', 'P3'])
+  })
+
+  test('los pendientes, con la serie de la base, ordenados por instalación', () => {
+    const r = armarReporte(conSeries())
+    assert.deepEqual(r.listas.pendientes, [
+      { instalacion: 'P9', serie: 'B-P9' },
+      { instalacion: 'P10', serie: 'B-P10' },
+      { instalacion: 'P11', serie: 'B-P11' },
+    ])
+  })
+
+  test('un cambio de medidor lista la serie NUEVA, con la anterior', () => {
+    const e = conSeries()
+    e.cambiosMedidor = [
+      { unidad: UL, ciclo: CICLO, instalacion: 'P7', serie: 'NUEVA-7', serieAnterior: 'S-P7' },
+      // de otro ciclo y de otra UL: no cuentan
+      { unidad: UL, ciclo: '2026-09-14', instalacion: 'P7', serie: 'VIEJA-CICLO' },
+      { unidad: 'OTRA', ciclo: CICLO, instalacion: 'P7', serie: 'OTRA-UL' },
+    ]
+    const [c] = armarReporte(e).listas.cambios
+    assert.equal(c.serie, 'NUEVA-7')
+    assert.equal(c.serieAnterior, 'S-P7')
+  })
+
+  test('sin el bloque del cambio, la serie nueva sale de la base si ya cambió', () => {
+    const [c] = armarReporte(conSeries()).listas.cambios
+    assert.equal(c.serie, 'B-P7')
+    assert.equal(c.serieAnterior, 'S-P7')
+  })
+
+  test('textoLista: una línea por servicio, lista para pegar', () => {
+    assert.equal(textoLista([
+      { instalacion: '103694009', serie: 'E3550001' },
+      { instalacion: 'G3534036', serie: null },
+      { instalacion: 'E713709426', serie: '8822', serieAnterior: '7711' },
+    ]), '103694009 - E3550001\nG3534036\nE713709426 - 8822 (antes 7711)')
   })
 })
 
