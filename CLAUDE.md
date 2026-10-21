@@ -122,7 +122,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 206 tests con node --test (205 pasan; 1 se salta sin log real)
+npm test              # 228 tests con node --test (227 pasan; 1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -226,7 +226,9 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 | `frontend/src/utils/cambiosToes.js` | qué cambios de medidor faltan en la base (puro, testeado) |
 | `frontend/src/utils/altasToes.js` | qué servicios tomados no tienen pin, con sus resguardos (puro, testeado) |
 | `frontend/src/hooks/useNotasUl.js` + `components/NotasUl.jsx` | notas de la ruta, con copia en el teléfono |
-| `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal (IndexedDB) |
+| `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal: archivos en el APK, IndexedDB en la web |
+| `frontend/src/utils/archivosFotos.js` | la cola de fotos en archivos de la app y el paso desde IndexedDB (puro, testeado) |
+| `frontend/src/utils/avisoWebView.js` | cuándo avisar que el WebView no deja sincronizar a TOES (puro, testeado) |
 | `frontend/src/utils/copiaRutas.js` + `utils/cargaSinSenal.js` | copia de ULs y medidores en el teléfono, y qué mostrar sin señal |
 | `frontend/src/hooks/useReintentoSinSenal.js` | vuelve a pedir ULs y medidores solo cuando vuelve la señal |
 | `frontend/src/utils/comprimirFoto.js` | achica la foto a 1920 px antes de guardarla |
@@ -280,7 +282,16 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
 - **Fotos:** se achican a 1920 px (JPEG 0,75: de varios MB a unos cientos de KB) y se guardan en el
   teléfono **antes** de subir. Sin señal quedan en la cola, se ven con ⏳ en el popup y el panel
   avisa cuántas esperan. Se suben solas al volver la red o la app, o cada minuto. Un 4xx no se
-  reintenta solo, pero la foto nunca se descarta.
+  reintenta solo, pero la foto nunca se descarta. **En el APK (desde la 2.6) la cola son archivos de
+  la app** (`files/colaFotos/<idLocal>.jpg` + `.json`, con `@capacitor/filesystem` y
+  `Directory.Data`), y no el IndexedDB del WebView: así sobrevive a bajar de versión el WebView. Las
+  que había en IndexedDB pasan solas a archivos (cada una se saca de IndexedDB recién después de
+  escribirla) y la base `fotos` se borra cuando queda vacía. En la web sigue en IndexedDB.
+- **Aviso del WebView** (desde la 2.6): si la app corre sobre un WebView 155 o posterior, el mapa
+  avisa en rojo que TOES no va a sincronizar y que hay que bajar el WebView **antes** de abrir TOES.
+  "Entendido" lo cierra hasta la próxima vez que se abra la app (no se recuerda a propósito: mientras
+  siga la 155, el problema sigue). Solo en el APK. El pie del panel muestra además la versión del
+  WebView junto a la de la app ("Versión 2.6 (9) · WebView 134").
 - **"🚗 Ir"** en el popup abre Google Maps con la URL universal (`utils/navegacion.js`); en el APK
   Android la pasa a la app de Maps. **"◎"** (abajo a la derecha) centra en tu posición y prende el
   punto azul si estaba apagado; es un contador (`pedidoCentrar`) que escuchan los dos motores.
@@ -358,11 +369,13 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 - **Bajar la versión del Android System WebView borra el IndexedDB y el localStorage de las apps**
   (2026-10-16): una versión vieja no abre lo que escribió una más nueva y lo recrea vacío. En el APK
   eso es la sesión, las ULs marcadas, el estado de TOES (se reconstruye releyendo los logs, pero hay
-  que volver a elegir la carpeta) y **la cola de fotos sin señal**. Antes de bajar el WebView, que no
-  quede ninguna foto esperando. A TOES le pasa lo mismo con sus lecturas pendientes (ver Estado).
+  que volver a elegir la carpeta) y la copia sin señal. **Las fotos en cola ya no** desde la 2.6:
+  son archivos de la app (`files/`, fuera de `app_webview/`); con la 2.5 o anterior sí se pierden.
+  A TOES le pasa lo mismo con sus lecturas pendientes (ver Estado).
 - **`indexedDB.open('x')` sin versión, desde DevTools, crea la base vacía** si no existía, y la app ya
   no corre su `onupgradeneeded`: queda sin almacén y falla sin avisar. Para mirar una base, preguntar
-  antes con `indexedDB.databases()`. `copiaRutas.js` se repara solo; `toesStore.js` y `colaFotos.js` no.
+  antes con `indexedDB.databases()`. `copiaRutas.js` se repara solo; `toesStore.js` no (y
+  `colaFotos.js` en la web tampoco; en el APK ya no usa IndexedDB).
 - **Un `element.click()` desde `webviewCdp.mjs` no es un gesto del usuario**, así que copiar al
   portapapeles falla (`writeText` y `execCommand` dan error) aunque con un dedo funcione. Para
   probar algo que pide gesto, tocar con `Input.dispatchMouseEvent` (pressed + released) en el
@@ -409,11 +422,25 @@ la web ya sirve el bundle con "copia guardada"). El backend no cambia desde `61e
 Verificado en producción: se creó el pin 103694009 (E3550001) y E713709426 quedó con la serie
 nueva.
 
-El APK a repartir es la **2.5 (code 8)**, build de debug, copiada como `MLA-Maule-2.5.apk` en
-`frontend/android/app/build/outputs/apk/debug/`. Lo de solo frontend no llega a los teléfonos que
-sigan con una versión anterior; lo del backend sí. **El modo sin señal no está en ningún APK
-repartido**: el teléfono del usuario tiene un build de debug del 2026-10-16 que ya lo trae (también
-dice 2.5). Para repartirlo hay que subir a 2.6 (code 9).
+El APK repartido es la **2.5 (code 8)**, build de debug del commit `2a876ed`. Su copia
+(`MLA-Maule-2.5.apk`) estaba en `frontend/android/app/build/outputs/apk/debug/` y **se perdió el
+2026-10-21**: cuando Gradle vuelve a empaquetar, limpia esa carpeta. Si hace falta, se recompila
+desde ese commit (la llave de debug es la de este PC). Las copias para repartir van en la **raíz
+del repo**, al lado de `MLA-Maule-2.2.apk` (`*.apk` está en el `.gitignore`). Lo de solo frontend
+no llega a los teléfonos que sigan con una versión anterior; lo del backend sí.
+
+En la rama `fotos-y-webview` (sin publicar), la **2.6 (code 9)**: la cola de fotos en archivos y el
+aviso del WebView 155, sobre todo lo de `sin-senal` (que tampoco está en ningún APK repartido).
+Agrega `@capacitor/filesystem` 8.1.4, fijado exacto (la 8.1.5 tenía 6 días), que no suma permisos
+al manifest. Copiada como `MLA-Maule-2.6.apk` en la raíz del repo. Instalada en el teléfono del
+usuario el 2026-10-21 y probada:
+- una foto sintética puesta en la cola vieja (IndexedDB) para la instalación `PRUEBA-COLA-FOTOS`
+  pasó sola a `files/colaFotos/`, la base `fotos` se borró, la subida leyó el archivo y el servidor
+  contestó 404 (antes de Cloudinary: no queda nada), y la foto quedó marcada con el motivo. Después
+  se borró a mano;
+- con el user agent cambiado a Chrome/155 por CDP, el aviso sale en los dos motores y "Entendido"
+  lo cierra; con el real (134) no sale.
+Lo que falta probar es sacar una foto de verdad con la cámara, sin señal, y verla subir sola.
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
@@ -432,14 +459,15 @@ Maps vuelve a instalar la 155. Desde entonces el usuario desinstala las actualiz
 **todos los días** y trabaja con la **134.0.6998.135 de fábrica** (visto el 2026-10-21), con la que
 TOES sincroniza. El riesgo es el orden: si TOES o esta app alcanzan a abrirse con la 155, al volver
 a la 134 se borra lo que tengan en el WebView (en TOES, las lecturas sin sincronizar; acá, la sesión
-y las fotos en cola). Quedan dos respaldos de TOES en `/data/local/tmp` del teléfono, para borrar
+y, hasta la 2.5, las fotos en cola). Quedan dos respaldos de TOES en `/data/local/tmp` del teléfono, para borrar
 cuando el supervisor confirme.
 
 Pendiente:
 
 - **Comprimir las respuestas del backend** (`compression` en Express): hoy no se comprimen, y con poca
   señal bajar los medidores de una UL larga (del orden de un MB) tarda.
-- Que la cola de fotos no dependa solo del IndexedDB del WebView: un cambio de versión la borra.
+- **Avisar del WebView 155 a CGE o al supervisor:** la falla es de TOES (sus consultas salen sin
+  cookies) y les va a pasar a todos los lectores a los que se les actualice el WebView.
 - **Servicio devuelto por la analista** (pedido del usuario: que vuelva al mapa con un color
   especial). Está en pausa hasta analizar un caso real. **El log no registra la devolución**: lo
   único que se ve es la misma orden (`ABLBELNR`) guardada de nuevo horas después, cuando el lector

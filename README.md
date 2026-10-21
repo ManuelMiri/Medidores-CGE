@@ -41,15 +41,19 @@ Y en el backend, que les sirve también a los APK viejos: rutas grandes al impor
 - **Los pines automáticos llevan la dirección y el poste del log**, así que se ven igual que uno de la ruta de MLA. Al que la app ya había creado sin ellos se le completan solos.
 - **Sin aviso en el popup** de los pines creados desde TOES (la 2.4.1 ya lo había sacado): al usuario no le gustó.
 
-### Lo que viene en la próxima versión
+### Lo que trae la 2.6 (todavía sin repartir)
 
-- **Abrir y trabajar sin señal.** Antes, abrir la app sin señal reemplazaba la pantalla entera por un aviso rojo: sin mapa, sin TOES y sin forma de reintentar. Ahora se trabaja con la copia que quedó en el teléfono la última vez que hubo señal, con un aviso que dice de cuándo es (ver "Trabajar sin señal"). Es solo del frontend, así que llega a los teléfonos con el próximo APK.
+- **Abrir y trabajar sin señal.** Antes, abrir la app sin señal reemplazaba la pantalla entera por un aviso rojo: sin mapa, sin TOES y sin forma de reintentar. Ahora se trabaja con la copia que quedó en el teléfono la última vez que hubo señal, con un aviso que dice de cuándo es (ver "Trabajar sin señal").
+- **Las fotos que esperan señal ya no se pierden al bajar el WebView.** Pasan a ser archivos de la app en vez de vivir en el IndexedDB del WebView (ver "TOES y el Android System WebView"). Las que estaban en cola se mueven solas.
+- **Aviso del WebView 155:** si el teléfono tiene un WebView con el que TOES no sincroniza, el mapa lo dice y explica qué hacer antes de abrir TOES. El pie del panel muestra la versión del WebView junto a la de la app.
+
+Todo es del frontend: llega a los teléfonos con el APK, no con la web.
 
 ## Stack
 
 - **Backend:** Node.js, Express 5, Mongoose 9, MongoDB Atlas
 - **Frontend:** React 19 + Vite 8, MapLibre GL 6 (motor del mapa por defecto) y Leaflet 1.9 + react-leaflet 5 (red de seguridad), Bootstrap 5, react-router-dom 7, `vite-plugin-pwa`
-- **Nativo:** Capacitor 8.5 (`@capacitor/core`, `cli`, `android`, `app`, `preferences`)
+- **Nativo:** Capacitor 8.5 (`@capacitor/core`, `cli`, `android`, `app`, `preferences`, `filesystem`)
 - **Autenticación:** JWT + bcrypt
 - **Fotos:** Cloudinary (subida vía multer en memoria)
 - **Importación de rutas:** KML (`@tmcw/togeojson`) y Excel de SAP (`xlsx`)
@@ -135,6 +139,8 @@ frontend/
     │   ├── copiaRutas.js       # copia de ULs y medidores en el teléfono (IndexedDB)
     │   ├── cargaSinSenal.js    # cuándo sirve esa copia y qué avisar
     │   ├── colaFotos.js, comprimirFoto.js  # fotos: se achican y esperan señal
+    │   ├── archivosFotos.js    # la cola de fotos del APK en archivos de la app
+    │   ├── avisoWebView.js     # cuándo avisar que el WebView no deja sincronizar a TOES
     │   ├── tilesDeRuta.js, precargaTiles.js  # bajar el mapa de una ruta
     │   ├── pinDeColor.js       # los pines de color y de contador para MapLibre
     │   ├── iconosMapa.js       # los pines, bundleados (no traídos de la red)
@@ -229,7 +235,9 @@ expone `showDirectoryPicker()`, solo el Origin Private File System, que es un sa
 `@capacitor/filesystem` tampoco sirve, porque solo alcanza directorios propios de la app, no el
 almacenamiento compartido. El Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE` +
 `takePersistableUriPermission` + `DocumentFile`) resuelve las dos cosas y **no necesita ningún permiso
-en el manifest**: el del APK declara solo `INTERNET`, sin `MANAGE_EXTERNAL_STORAGE`.
+de almacenamiento en el manifest**: el del APK declara `INTERNET` y la ubicación (para el punto azul
+y las fotos), sin `MANAGE_EXTERNAL_STORAGE`. La cola de fotos sí usa `@capacitor/filesystem`, pero en
+el directorio propio de la app, que tampoco pide permisos.
 
 **Está en Java y no en Kotlin.** El proyecto Android que genera Capacitor es Java puro; meter Kotlin
 obligaba a sumar su plugin de Gradle y la stdlib al APK, y el SAF es exactamente la misma API desde los
@@ -279,13 +287,22 @@ Verificado: con la app leyendo `/TOES`, `adb logcat | grep Capacitor` devuelve c
 
 Con la versión **155** del Android System WebView, TOES deja de sincronizar ("No se pudo establecer
 la conexión"): sus consultas salen sin cookies y el servidor les contesta 403. Con la 154 funciona.
-No es nuestra app, pero la afecta igual por dos lados:
+No es nuestra app, pero la afecta igual:
 
 - **Bajar de versión el WebView borra el IndexedDB y el localStorage de todas las apps**: una versión
   vieja no abre lo que escribió una más nueva y lo recrea vacío. A TOES se le va su cola de lecturas
   pendientes. A esta app, la sesión, las ULs marcadas, el estado de TOES (se reconstruye releyendo
-  los logs, pero hay que volver a elegir la carpeta) y **las fotos que esperaban señal**. Antes de
-  bajarlo, que TOES no tenga nada pendiente y que no quede ninguna foto en cola.
+  los logs, pero hay que volver a elegir la carpeta) y la copia sin señal. Antes de bajarlo, que
+  TOES no tenga nada pendiente.
+- **Las fotos en cola se salvan desde la 2.6.** Hasta la 2.5 vivían en el IndexedDB y se perdían
+  igual. Ahora son archivos de la app (`files/colaFotos/`, aparte de `app_webview/`, que es lo que
+  se borra), escritos con `@capacitor/filesystem` (`utils/archivosFotos.js`). Cada foto es un `.jpg`
+  y un `.json`, y el `.json` se escribe al final, así que una foto a medio escribir no entra a la
+  cola. Las que había en IndexedDB pasan solas a archivos: cada una se saca de ahí recién después de
+  escribirla, y la base vieja se borra cuando queda vacía. En el navegador la cola sigue en IndexedDB.
+- **El aviso:** como esta app corre sobre el mismo WebView del sistema que TOES, sabe qué versión va
+  a usar TOES. Con la 155 o una posterior muestra arriba del mapa qué hacer antes de abrir TOES
+  (`utils/avisoWebView.js`), y el pie del panel muestra siempre la versión del WebView.
 - El WebView se actualiza desde Play Store, y Google ya no deja apagar la actualización solo para él.
   Poner Play Store en "No actualizar apps automáticamente" **no alcanza**: usar Chrome o Maps vuelve a
   instalar la 155. Lo que funciona es desinstalar las actualizaciones del WebView (Ajustes → Apps →
@@ -590,13 +607,14 @@ red queda la copia, con el aviso "📵 Sin señal: … copia guardada del dd-mm 
   preguntar al servidor, lo dice con esas palabras en vez de "Error al buscar".
 
 Lo demás ya funcionaba sin señal: la lectura de TOES (nunca dependió de la red), las notas de la UL
-(copia en el teléfono), las fotos (cola en IndexedDB, con ⏳ en el popup) y los cuadros del mapa ya
+(copia en el teléfono), las fotos (cola en el teléfono, con ⏳ en el popup) y los cuadros del mapa ya
 visitados o bajados con el botón de descargar la ruta (`sw-tiles.js`).
 
 **`indexedDB.open('copiaRutas')` sin versión, desde DevTools, deja la base sin almacén.** Si no
 existía, la crea vacía en la versión 1 y la app ya no corre su `onupgradeneeded`: la copia no se
 guardaría nunca, sin ningún error. Pasó el mismo 16 de octubre. `copiaRutas.js` se repara solo
-(abre en la versión siguiente y crea el almacén); `toesStore.js` y `colaFotos.js` no. Para mirar una
+(abre en la versión siguiente y crea el almacén); `toesStore.js` no, ni `colaFotos.js` en el
+navegador (en el APK ya no usa IndexedDB). Para mirar una
 base desde DevTools, preguntar antes con `indexedDB.databases()`.
 
 
@@ -688,7 +706,7 @@ cd backend
 npm test
 ```
 
-**Frontend — 206 tests** (205 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, qué cambios de medidor faltan en la base, qué servicios tomados no tienen pin (con sus resguardos), el reporte de ruta, el agrupado por punto, qué ULs se restauran al abrir, cuándo sirve la copia sin señal, las medidas de las fotos comprimidas y cuándo se reintenta subirlas, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 228 tests** (227 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, qué cambios de medidor faltan en la base, qué servicios tomados no tienen pin (con sus resguardos), el reporte de ruta, el agrupado por punto, qué ULs se restauran al abrir, cuándo sirve la copia sin señal, las medidas de las fotos comprimidas y cuándo se reintenta subirlas, la cola de fotos en archivos (con un sistema de archivos falso: escrituras cortadas, el paso desde IndexedDB sin perder ninguna), cuándo avisar del WebView, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
@@ -776,7 +794,9 @@ Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/
 build tiene un teléfono es preguntársela — y para eso tiene que cambiar. El `versionName` sale en el
 pie del panel lateral, así que se lee sin entrar a los ajustes de Android. La repartida hoy es la
 **2.5 (code 8)**; conviene copiar el APK con un nombre que la diga (`MLA-Maule-2.5.apk`), porque
-`app-debug.apk` se sobreescribe en cada build.
+`app-debug.apk` se sobreescribe en cada build. **La copia va en la raíz del repo** (`*.apk` está en
+el `.gitignore`) y no al lado de `app-debug.apk`: cuando Gradle vuelve a empaquetar, limpia esa
+carpeta entera. Así se perdió la copia de la 2.5 el 2026-10-21.
 
 Todavía es un build de **debug**: funciona igual, pero permite inspeccionar la app por cable. Firmar
 para release sigue pendiente.
