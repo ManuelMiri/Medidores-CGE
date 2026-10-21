@@ -286,8 +286,11 @@ No es nuestra app, pero la afecta igual por dos lados:
   pendientes. A esta app, la sesión, las ULs marcadas, el estado de TOES (se reconstruye releyendo
   los logs, pero hay que volver a elegir la carpeta) y **las fotos que esperaban señal**. Antes de
   bajarlo, que TOES no tenga nada pendiente y que no quede ninguna foto en cola.
-- El WebView se actualiza desde Play Store, y Google ya no deja apagar la actualización solo para él:
-  para que no vuelva a la 155 hay que poner Play Store en "No actualizar apps automáticamente".
+- El WebView se actualiza desde Play Store, y Google ya no deja apagar la actualización solo para él.
+  Poner Play Store en "No actualizar apps automáticamente" **no alcanza**: usar Chrome o Maps vuelve a
+  instalar la 155. Lo que funciona es desinstalar las actualizaciones del WebView (Ajustes → Apps →
+  Android System WebView), que lo deja en la versión de fábrica, y hacerlo **antes de abrir TOES o
+  esta app**: si alguna alcanzó a abrirse con la 155, al volver atrás pierde lo que tenía guardado.
 
 
 ## Rendimiento del mapa

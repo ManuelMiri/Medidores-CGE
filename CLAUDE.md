@@ -426,9 +426,14 @@ menos de 5 s.
 **TOES y el WebView (2026-10-16):** con el Android System WebView 155, TOES deja de sincronizar ("No
 se pudo establecer la conexión"): sus consultas salen sin cookies y el servidor contesta 403. Con la
 154 funciona. Bajar de versión borra lo pendiente de TOES (su cola vive en el IndexedDB del WebView),
-así que solo se cambia con TOES sin nada pendiente. El teléfono del usuario quedó en la 154, con Play
-Store en "No actualizar apps automáticamente" (Google ya no deja apagarlo solo para el WebView). Quedan
-dos respaldos de TOES en `/data/local/tmp` del teléfono, para borrar cuando el supervisor confirme.
+así que solo se cambia con TOES sin nada pendiente. Play Store está en "No actualizar apps
+automáticamente" (Google ya no deja apagarlo solo para el WebView), **y no alcanza**: usar Chrome o
+Maps vuelve a instalar la 155. Desde entonces el usuario desinstala las actualizaciones del WebView
+**todos los días** y trabaja con la **134.0.6998.135 de fábrica** (visto el 2026-10-21), con la que
+TOES sincroniza. El riesgo es el orden: si TOES o esta app alcanzan a abrirse con la 155, al volver
+a la 134 se borra lo que tengan en el WebView (en TOES, las lecturas sin sincronizar; acá, la sesión
+y las fotos en cola). Quedan dos respaldos de TOES en `/data/local/tmp` del teléfono, para borrar
+cuando el supervisor confirme.
 
 Pendiente:
 
