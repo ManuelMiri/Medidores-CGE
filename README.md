@@ -47,7 +47,7 @@ Y en el backend, que les sirve también a los APK viejos: rutas grandes al impor
 - **Las fotos que esperan señal ya no se pierden al bajar el WebView.** Pasan a ser archivos de la app en vez de vivir en el IndexedDB del WebView (ver "TOES y el Android System WebView"). Las que estaban en cola se mueven solas.
 - **Aviso del WebView 155:** si el teléfono tiene un WebView con el que TOES no sincroniza, el mapa lo dice y explica qué hacer antes de abrir TOES. El pie del panel muestra la versión del WebView junto a la de la app.
 - **Listas en el reporte de ruta:** cada fila del reporte (casas cerradas, cada tipo de casa cerrada, leídos, eriazos, cambios, otras claves, pendientes y nuevos) se toca y despliega la lista "instalación - serie" con un botón **Copiar lista**, lista para pegar. En los cambios de medidor va la serie nueva con la anterior.
-- **Quién subió cada UL** (solo admin): en el bloque de TOES, entre la UL y el ciclo, "Subida por …". Sale del historial de la importación, así que necesita el backend nuevo.
+- **Quién subió cada UL** (solo admin): un bloque "👤 Subida por" arriba del Resumen, con cada UL marcada y el nombre de quien la importó, tenga o no lecturas de TOES. Sale del historial de la importación, así que necesita el backend nuevo.
 
 Todo es del frontend: llega a los teléfonos con el APK, no con la web.
 

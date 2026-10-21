@@ -19,6 +19,7 @@ import { useCambiosToes, useAltasToes } from '../hooks/useEnviosToes'
 import { useNotasUl } from '../hooks/useNotasUl'
 import { useColaFotos } from '../hooks/useColaFotos'
 import { useReintentoSinSenal } from '../hooks/useReintentoSinSenal'
+import { useSubidasUl } from '../hooks/useSubidasUl'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
@@ -696,6 +697,11 @@ export default function Mapa() {
   const notasUl = useNotasUl(ulsActivas)
   const [notasAbiertas, setNotasAbiertas] = useState(null)
 
+  // Solo admin: quién subió cada UL marcada, en su bloque arriba del Resumen.
+  // No va en el bloque de TOES: ese solo muestra las ULs con lecturas del
+  // ciclo, y una UL recién marcada no tenía dónde mostrarlo.
+  const subidas = useSubidasUl(ulsActivas, usuario.rol === 'admin')
+
   // Fotos guardadas en el teléfono que esperan señal; al subir, se recargan
   // los medidores para que aparezcan en su popup.
   const colaFotos = useColaFotos(cargarMedidores)
@@ -1160,8 +1166,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               )}
             </div>
 
-            <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas}
-              esAdmin={usuario.rol === 'admin'} />
+            <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
             {colaFotos.pendientes.length > 0 && (
               <div style={{
                 margin: '0 0.75rem 0.5rem', padding: '0.4rem 0.5rem', borderRadius: 6,
@@ -1186,6 +1191,29 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                 ⚠️ En {ulsSinAltas.join(', ')} hay demasiados servicios tomados sin pin; no se
                 crearon solos por si la lista de medidores vino incompleta.
               </p>
+            )}
+
+            {/* Quién subió cada UL marcada (solo admin). Bloque propio y
+                compacto: siempre a la vista, tenga o no lecturas de TOES. */}
+            {usuario.rol === 'admin' && ulsActivas.length > 0 && (
+              <div style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid #e2e8f0', fontSize: '0.78rem' }}>
+                <div style={{ fontWeight: 'bold', fontSize: '0.8rem', color: '#2b6cb0', marginBottom: '0.2rem' }}>
+                  👤 Subida por
+                </div>
+                {ulsActivas.map((ul) => {
+                  const s = subidas.porUl[ul]
+                  return (
+                    <div key={ul} className="d-flex justify-content-between gap-2">
+                      <span>{ul}</span>
+                      <span className="text-truncate" style={{ color: s?.nombre ? '#2d3748' : '#a0aec0' }}>
+                        {s?.nombre
+                          ? `${s.nombre}${s.otros > 0 ? ` y ${s.otros} más` : ''}`
+                          : subidas.cargado ? 'sin registro' : '…'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
             )}
 
             <div style={{ padding: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>

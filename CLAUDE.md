@@ -284,10 +284,13 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
   orden en que se leyeron; los pendientes, por instalación (comparación numérica). En los cambios
   de medidor va la serie **nueva** con "(antes X)": la lectura con clave 10 trae la vieja, la nueva
   sale de `toes.cambiosMedidor` o, si ese bloque no llegó, de la base.
-- **"Subida por …"** (solo admin): en el bloque de TOES, entre la UL y el ciclo, quién importó la
-  ruta (`GET /rutas/subidas`). Si la subieron en partes, la primera persona "y N más". Una UL cuyos
-  medidores no vienen de una importación no muestra nada (E3559701, al 2026-10-21). Sin señal o
-  con un backend sin la ruta, tampoco: es un dato de referencia.
+- **"👤 Subida por"** (solo admin): bloque propio en el panel, **justo arriba del Resumen**, con
+  cada UL marcada y quién la importó (`GET /rutas/subidas`). Si la subieron en partes, la primera
+  persona "y N más". **No va en el bloque de TOES**: ahí estuvo primero, entre la UL y el ciclo, y
+  una UL sin lecturas del ciclo no tiene bloque de TOES, así que no se veía (lo pidió el usuario:
+  "debe estar siempre disponible"). Cada fila dice el nombre, "sin registro" si la UL no viene de
+  una importación (E3559701, al 2026-10-21) o "…" si no hubo respuesta (sin señal, o un backend sin
+  la ruta).
 - **Notas de la UL:** botón 📝 en cada UL marcada, con el número de notas a la vista. Sin señal
   muestra la última copia guardada en el teléfono.
 - **Fotos:** se achican a 1920 px (JPEG 0,75: de varios MB a unos cientos de KB) y se guardan en el
@@ -456,11 +459,13 @@ Lo que falta probar es sacar una foto de verdad con la cámara, sin señal, y ve
 Encima, en la rama `reporte-y-subidas` (sin publicar, sale en la misma 2.6): las listas del reporte
 y "Subida por …". **Toca el backend** (`GET /rutas/subidas`, ruta nueva: los APK viejos no la usan).
 Probado en el teléfono el 2026-10-21 sobre E3515013, con la respuesta de `/subidas` puesta por CDP
-(`Fetch`, porque producción todavía no la tiene) igual a la que da la consulta real: "Subida por
-Luciano Trejos" entre la UL y el ciclo; casas cerradas 16 líneas y pendientes 6, todas
-"instalación - serie", una lista abierta a la vez; el cambio de medidor con "(antes …)"; "Copiar
-lista" con un toque de verdad da "✓ Copiada". La agregación se corrió solo-lectura contra la base:
-25 de 27 ULs tienen quién la subió.
+(`Fetch`, porque producción todavía no la tiene) igual a la que da la consulta real: casas
+cerradas 16 líneas y pendientes 6, todas "instalación - serie", una lista abierta a la vez; el
+cambio de medidor con "(antes …)"; "Copiar lista" con un toque de verdad da "✓ Copiada". El bloque
+"👤 Subida por", sobre E3510001 (sin lecturas de TOES en el ciclo): "Ccastillo" con la respuesta
+real, "sin registro" con una vacía y "…" contra producción, que hoy da 404. La agregación se corrió
+solo-lectura contra la base: 25 de 27 ULs tienen quién la subió. **Hasta publicar el backend, el
+bloque muestra "…"**.
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
