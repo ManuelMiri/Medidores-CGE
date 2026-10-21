@@ -419,9 +419,18 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-Producción está en `bd933de`, publicado el 2026-10-21 (`main` y `Develop`; Vercel en `success` y
-la web ya sirve el bundle con "copia guardada"). El backend no cambia desde `61ef7af`, del
-2026-10-14. Tiene:
+`main` y `Develop` están en `c9b6af6` (2026-10-21, 23:11 UTC): `sin-senal`, `fotos-y-webview` y
+`reporte-y-subidas`. **La web sí** (Vercel en `success`, el bundle trae "Subida por"). **El
+backend NO**: Railway sigue en `61ef7af` (2026-10-14) porque ese día tenía un "Railway Platform
+Outage" con todos los builds y despliegues pausados (status.railway.com, desde las 07:24 UTC; el
+20-10 ya había pausado builds). No fue configuración: hasta el 14-10 desplegaba solo en segundos.
+Cuando vuelva, comprobar que `GET /api/rutas/subidas` sin token dé 401 (hoy da 404); si Railway no
+lo toma solo, Manuel tiene que hacer "Deploy latest commit" (el usuario no tiene acceso a
+Railway). Hasta entonces el bloque "👤 Subida por" muestra "…" y nada más cambia. Railway
+habló además de un incidente de seguridad (rotó credenciales de sus buckets, que no se usan acá):
+otra razón para hacer la rotación de Atlas y Cloudinary pendiente.
+
+Lo que ya estaba en producción antes del 2026-10-21 (backend `61ef7af`):
 - lo anterior: TOES, la marca permanente, MapLibre, el buscador por UL y el panel desplegable;
 - de la rama `terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir",
   "centrar en mí", hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB),
