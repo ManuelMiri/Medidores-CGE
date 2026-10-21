@@ -10,7 +10,7 @@ El backend además fue usado como base para el encargo de la Unidad 2 del ramo P
 |---|---|---|
 | Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción |
 | Frontend web / PWA | Vercel (`https://medidores-cge.vercel.app`) | En producción |
-| APK Android (Capacitor) | `frontend/android/`, sideload interno | Versión **2.3 (5)**. Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
+| APK Android (Capacitor) | `frontend/android/`, sideload interno | Versión **2.5 (8)**. Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
 | Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Completa: parser, visibilidad del mapa y lectura automática de `/TOES` en el APK |
 
 Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end (en los tests del backend sí, y el último hueco conocido, `GET /medidores?ul=` con una UL ajena, ya está cerrado).
@@ -31,15 +31,24 @@ Y en el backend, que les sirve también a los APK viejos: rutas grandes al impor
 ### Lo que trae la 2.4 (14 de octubre de 2026)
 
 - **Cambio de medidor desde TOES:** la serie y la marca nuevas pasan solas a la base, y el popup muestra el medidor anterior (ver "Cambio de medidor y servicios sin pin").
-- **Pin automático:** un servicio tomado en TOES que no estaba en el mapa se crea con el GPS del lector al guardar, más la dirección y el poste del log.
-- **📊 Reporte de ruta** en el panel de TOES: servicios, leídos, casas cerradas por tipo, eriazos, cambios, nuevos y pendientes, en un popup chico con un botón **Copiar** que deja el texto listo para WhatsApp.
+- **Pin automático:** un servicio tomado en TOES que no estaba en el mapa se crea con el GPS del lector al guardar.
 - **📝 Notas por UL:** la clave de un portón, un perro bravo. Se ven sin señal (copia en el teléfono) y nunca se borran: se ocultan.
 - **Fotos sin señal:** se achican a 1920 px y se guardan en el teléfono antes de subir. Si no hay señal esperan (⏳) y se suben solas después; antes se perdían.
+
+### Lo que trae la 2.5 (14 de octubre de 2026, noche)
+
+- **📊 Reporte de ruta** en el panel de TOES: servicios, leídos, casas cerradas por tipo, eriazos, cambios, nuevos y pendientes, en un popup chico con un botón **Copiar** que deja el texto listo para WhatsApp.
+- **Los pines automáticos llevan la dirección y el poste del log**, así que se ven igual que uno de la ruta de MLA. Al que la app ya había creado sin ellos se le completan solos.
+- **Sin aviso en el popup** de los pines creados desde TOES (la 2.4.1 ya lo había sacado): al usuario no le gustó.
+
+### Lo que viene en la próxima versión
+
+- **Abrir y trabajar sin señal.** Antes, abrir la app sin señal reemplazaba la pantalla entera por un aviso rojo: sin mapa, sin TOES y sin forma de reintentar. Ahora se trabaja con la copia que quedó en el teléfono la última vez que hubo señal, con un aviso que dice de cuándo es (ver "Trabajar sin señal"). Es solo del frontend, así que llega a los teléfonos con el próximo APK.
 
 ## Stack
 
 - **Backend:** Node.js, Express 5, Mongoose 9, MongoDB Atlas
-- **Frontend:** React 19 + Vite 8, Leaflet 1.9 + react-leaflet 5, Bootstrap 5, react-router-dom 7, `vite-plugin-pwa`
+- **Frontend:** React 19 + Vite 8, MapLibre GL 6 (motor del mapa por defecto) y Leaflet 1.9 + react-leaflet 5 (red de seguridad), Bootstrap 5, react-router-dom 7, `vite-plugin-pwa`
 - **Nativo:** Capacitor 8.5 (`@capacitor/core`, `cli`, `android`, `app`, `preferences`)
 - **Autenticación:** JWT + bcrypt
 - **Fotos:** Cloudinary (subida vía multer en memoria)
@@ -55,14 +64,17 @@ backend/
 ├── middleware/auth.js      # proteger (verifica JWT y lista negra) y soloRol (autorización)
 ├── models/
 │   ├── Usuario.js          # rol: lector | supervisor | admin; unidadesLectura: [String]
-│   ├── Medidor.js          # instalacion (único), unidadDeLectura, ubicacion GeoJSON, fotos, historial
+│   ├── Medidor.js          # instalacion (único), unidadDeLectura, ubicacion GeoJSON, fotos, historial,
+│   │                       #   marcaPermanente, medidorLupa, cambioMedidor, desdeToes
+│   ├── NotaUl.js           # notas de una ruta: se ocultan, nunca se borran
 │   └── TokenInvalido.js    # lista negra de tokens, con índice TTL
 ├── rutas/
 │   ├── auth.js             # login, perfil, logout + gestión de usuarios (admin)
-│   ├── medidores.js        # CRUD de medidores + /buscar + /uls
+│   ├── medidores.js        # CRUD + /buscar + /uls, marca permanente, mover el pin,
+│   │                       #   cambio de medidor y pin desde TOES
 │   ├── fotos.js            # subida de fotos a Cloudinary
 │   ├── importacion.js      # preview + confirmar de KML/Excel (admin)
-│   └── rutas.js            # exportar y borrar una UL completa
+│   └── rutas.js            # exportar y borrar una UL completa + notas de la UL
 ├── utils/
 │   ├── cache.js            # caché en memoria (TTL 60s)
 │   ├── cloudinary.js
@@ -72,39 +84,63 @@ backend/
 ├── data/
 │   ├── medidores.json
 │   └── seed.js             # OJO: hace Medidor.deleteMany({}) — no correr contra Atlas de producción
-└── tests/                  # 8 suites, 99 tests
+└── tests/                  # 11 suites, 124 tests
 
 frontend/
 ├── capacitor.config.json   # appId cl.mla.maule, webDir dist, androidScheme https
 ├── .env.native             # VITE_API_URL absoluta para el build del APK
 ├── vite.config.js          # PWA con injectRegister: false (el SW se registra a mano)
-├── scripts/compilarApk.mjs # busca un JDK 21 y corre gradlew (sirve en cualquier shell)
+├── scripts/
+│   ├── compilarApk.mjs     # busca un JDK 21 y corre gradlew (sirve en cualquier shell)
+│   ├── medirMapa.mjs       # mide la fluidez del mapa en el teléfono, con un gesto por adb
+│   └── webviewCdp.mjs      # habla con el WebView del APK por el protocolo de DevTools
 ├── public/sw-tiles.js      # service worker del APK: cachea tiles, no precachea nada
 ├── android/                # proyecto Android (Capacitor). Versionado; fuera de Vercel
 │   └── app/src/main/java/cl/mla/maule/
 │       ├── MainActivity.java      # registra el plugin de TOES
 │       └── toes/ToesPlugin.java   # lee /TOES por SAF, solo lectura
 └── src/
-    ├── pages/Mapa.jsx      # el mapa; ~1400 líneas, es el archivo central del frontend
+    ├── pages/Mapa.jsx      # ~1600 líneas, el archivo central: buscador, panel lateral, carga
+    │                       #   de rutas; elige el motor del mapa
     ├── pages/Login.jsx
     ├── components/
+    │   ├── MapaGL.jsx          # el mapa sobre GPU (MapLibre), el motor por defecto
+    │   ├── CapaMedidores.jsx   # los pines de Leaflet: memoizados y con culling por viewport
+    │   ├── DetalleMedidor.jsx  # el contenido del popup, compartido por los dos motores
     │   ├── PanelToes.jsx       # bloque "Lecturas de TOES" del panel lateral
-    │   ├── CapaMedidores.jsx   # los pines: memoizados y con culling por viewport
+    │   ├── ReporteRuta.jsx     # el reporte de ruta y su botón Copiar
+    │   ├── NotasUl.jsx         # notas de la ruta
     │   ├── CargaKml.jsx, PreviewImportacion.jsx, CapturaFoto.jsx,
     │   └── MiUbicacion.jsx, GestionUsuarios.jsx
-    ├── hooks/useToes.js        # une parser + almacén + mapa
-    ├── utils/
-    │   ├── toesParser.js       # parseo de los logs de TOES (lógica pura, testeada)
-    │   ├── toesParser.test.js  # 25 tests
-    │   ├── cursorToes.js       # cursor de lectura incremental en bytes (+ 27 tests)
+    ├── hooks/
+    │   ├── useToes.js          # une parser + almacén + mapa
+    │   ├── useMarcasToes.js    # manda al backend las marcas permanentes
+    │   ├── useEnviosToes.js    # manda el cambio de medidor y crea los pines que faltan
+    │   ├── useColaFotos.js     # sube las fotos que esperaban señal
+    │   ├── useNotasUl.js       # notas de la ruta, con copia en el teléfono
+    │   ├── useReintentoSinSenal.js  # vuelve a pedir rutas y medidores cuando vuelve la señal
+    │   └── useMiUbicacionGL.js # el punto azul en MapLibre
+    ├── utils/                  # las reglas puras llevan su .test.js al lado
+    │   ├── toesParser.js       # parseo de los logs de TOES
+    │   ├── cursorToes.js       # cursor de lectura incremental en bytes
     │   ├── toesNativo.js       # puente con el plugin nativo y bucle de lectura
     │   ├── toesStore.js        # persistencia en IndexedDB
-    │   ├── vistaMarcador.js    # decide ocultar/atenuar/colorear cada marcador
-    │   ├── agrupar.js          # junta los medidores del mismo punto (+ 9 tests)
-    │   ├── iconosMapa.js       # los pines, bundleados (no traidos de la red)
-    │   ├── navegacion.js       # URL de Google Maps del botón "Ir" (+ tests)
+    │   ├── marcasToes.js       # qué claves proponen marca permanente y cuál la quita
+    │   ├── cambiosToes.js      # qué cambios de medidor faltan en la base
+    │   ├── altasToes.js        # qué servicios tomados no tienen pin, con sus resguardos
+    │   ├── reporteRuta.js      # las cuentas del reporte de ruta y su texto
+    │   ├── vistaMarcador.js    # decide ocultar/atenuar/colorear cada grupo de pines
+    │   ├── agrupar.js          # junta los medidores del mismo punto (5 m)
+    │   ├── ulsActivas.js       # qué ULs quedan marcadas al abrir y al recargar la lista
+    │   ├── copiaRutas.js       # copia de ULs y medidores en el teléfono (IndexedDB)
+    │   ├── cargaSinSenal.js    # cuándo sirve esa copia y qué avisar
+    │   ├── colaFotos.js, comprimirFoto.js  # fotos: se achican y esperan señal
+    │   ├── tilesDeRuta.js, precargaTiles.js  # bajar el mapa de una ruta
+    │   ├── pinDeColor.js       # los pines de color y de contador para MapLibre
+    │   ├── iconosMapa.js       # los pines, bundleados (no traídos de la red)
+    │   ├── navegacion.js       # URL de Google Maps del botón "Ir"
     │   └── __fixtures__/logSintetico.js  # generador de logs falsos para los tests
-    ├── config/clavesToes.json  # configuración editable de la integración
+    ├── config/clavesToes.json  # la tabla oficial de claves de TOES
     ├── context/AuthContext.jsx
     └── services/api.js         # axios con el token en Authorization: Bearer
 ```
@@ -205,7 +241,7 @@ una sola llamada que modifique (ni `delete`, ni `renameTo`, ni `"w"`). El conten
 teléfono: se lee, se extrae lo que el mapa necesita y el texto se descarta.
 
 **El cursor va en bytes, no en caracteres.** Es la parte que se equivoca en silencio, así que vive
-aparte en `utils/cursorToes.js` con 27 tests. El parser cuenta caracteres, el archivo se mide en bytes y
+aparte en `utils/cursorToes.js`, con sus propios tests. El parser cuenta caracteres, el archivo se mide en bytes y
 no coinciden: el log real de prueba tiene 761.639 bytes y 761.541 caracteres — 98 de diferencia por los
 acentos. Mezclar las dos escalas desincroniza la lectura incremental y puede partir un carácter en dos,
 rompiendo el `JSON.parse` del bloque siguiente. Los trozos se cortan siempre en un salto de línea, que
@@ -239,13 +275,29 @@ ni una línea.
 
 Verificado: con la app leyendo `/TOES`, `adb logcat | grep Capacitor` devuelve cero líneas.
 
+### TOES y el Android System WebView (2026-10-16)
+
+Con la versión **155** del Android System WebView, TOES deja de sincronizar ("No se pudo establecer
+la conexión"): sus consultas salen sin cookies y el servidor les contesta 403. Con la 154 funciona.
+No es nuestra app, pero la afecta igual por dos lados:
+
+- **Bajar de versión el WebView borra el IndexedDB y el localStorage de todas las apps**: una versión
+  vieja no abre lo que escribió una más nueva y lo recrea vacío. A TOES se le va su cola de lecturas
+  pendientes. A esta app, la sesión, las ULs marcadas, el estado de TOES (se reconstruye releyendo
+  los logs, pero hay que volver a elegir la carpeta) y **las fotos que esperaban señal**. Antes de
+  bajarlo, que TOES no tenga nada pendiente y que no quede ninguna foto en cola.
+- El WebView se actualiza desde Play Store, y Google ya no deja apagar la actualización solo para él:
+  para que no vuelva a la 155 hay que poner Play Store en "No actualizar apps automáticamente".
+
 
 ## Rendimiento del mapa
 
-El dato que ordena todo esto: en Atlas hay **1.765 medidores** repartidos en 8 ULs, de 83 a 302 cada
-una. (Los "~85" del principio de este README son los medidores *sin registrar* que motivaron la app, no
-el dataset.) El frontend pide `limite=500` por UL activa, así que con una ruta cargada hay entre 170 y
-300 pines, y hasta 1.765 si se activan todas.
+El dato que ordenó todo esto: cuando se midió, en Atlas había **1.765 medidores** repartidos en 8 ULs,
+de 83 a 302 cada una. (Los "~85" del principio de este README son los medidores *sin registrar* que
+motivaron la app, no el dataset.) Con una ruta cargada había entre 170 y 300 pines, y hasta 1.765 si
+se activaban todas. Hoy el frontend pide hasta 1.500 por UL activa (`limite=1500` en `Mapa.jsx`; el
+backend no tiene tope propio): las rutas más largas tienen ~1.000, y con el límite anterior de 500
+una ruta de 515 dejaba 15 fuera del mapa sin avisar.
 
 ### Lo que se midió, y con qué
 
@@ -401,15 +453,17 @@ necesita ver al empezar la ruta; si se ocultara, la marca no serviría para nada
 lectura prueba que el medidor sí está, y es el lado seguro del error: como mucho alguien vuelve a
 buscar un medidor. Lo caro es lo contrario.
 
-Esto es lo **único** de la integración con TOES que escribe en el backend, y es deliberado: la marca
-tiene que verla el lector del mes siguiente, que puede ser otra persona y otro teléfono, así que no
-puede vivir solo en IndexedDB. Viaja el mínimo — instalación, tipo, clave y ciclo — y nunca la
-dirección, la lectura ni las coordenadas del log.
+Fue la primera de las tres excepciones de la regla de privacidad que escriben en el backend (las
+otras dos son el cambio de medidor y el pin de un servicio sin pin), y es deliberada: la marca tiene
+que verla el lector del mes siguiente, que puede ser otra persona y otro teléfono, así que no puede
+vivir solo en IndexedDB. Viaja el mínimo — instalación, tipo, clave y ciclo — y nunca la dirección,
+la lectura ni las coordenadas del log.
 
 **"Sin empalme" todavía no llega desde TOES.** Su clave 16 está inactiva: el lector lo reporta como
-submenú de la clave 05, así que `METERREADINGNOTE` trae `05` y el detalle debe estar en otro campo del
-bloque (candidatos vistos en logs reales: `ZZABLHINW2`, `ZZABLHINW3`, `NOTA_APK`, `RESPUESTA`). Hasta
-confirmarlo contra un log real, esa marca solo se pone a mano desde el popup.
+submenú de la clave 05, así que `METERREADINGNOTE` trae `05`. Revisados los 55 logs de un teléfono, el
+detalle está en **`COD_ESTADO_MED`**, el único campo que cambia: viene `null` en todos los bloques
+salvo en los de clave 05, donde trae `"4"` o `"6"`. Falta saber qué opción es cada código; hasta tener
+esa tabla, esa marca solo se pone a mano desde el popup.
 
 
 ### Caché de tiles en el APK
@@ -482,6 +536,50 @@ borrosa pero usable por un cuadro gris en un sector sin cobertura, justo en los 
   rápido: eso lo ataca la precarga de la ruta. El paso siguiente sería un mapa base vectorial propio
   (PMTiles de la Región del Maule), que además sacaría la dependencia de OSM y de Esri — los dos
   pueden cortar el acceso, como ya pasó con CARTO.
+
+
+## Trabajar sin señal
+
+Caso real del 2026-10-16: el lector abrió la app en una zona sin señal y la pantalla entera quedó en
+"Error al cargar las unidades de lectura" — sin mapa, sin panel de TOES, sin los cuadros del mapa ya
+bajados y sin forma de reintentar. Un error de carga **reemplazaba la app entera** por ese aviso.
+
+Ahora cada carga de la lista de ULs y de los medidores de una UL deja una copia en el teléfono
+(`utils/copiaRutas.js`). Al abrir se muestra primero la copia y después lo que llega de la red; sin
+red queda la copia, con el aviso "📵 Sin señal: … copia guardada del dd-mm hh:mm" y un botón
+**Reintentar**.
+
+- **IndexedDB y no localStorage:** una UL de 1.000 servicios con su historial pesa del orden de un MB,
+  y localStorage se acaba en ~5 MB.
+- **La copia es por usuario:** en un teléfono compartido, el que entra después no ve las rutas del
+  anterior. "Salir" las borra todas.
+- **Son datos de la base**, lo mismo que ya muestra el mapa. El log de TOES sigue sin salir de su
+  almacén propio.
+- **Cada UL cae a su copia por separado.** Antes la carga era un `Promise.all`: una sola UL sin
+  respuesta dejaba el mapa vacío para todas.
+- **Cuándo sirve la copia** vive en `utils/cargaSinSenal.js`, con tests, porque equivocarse no da
+  ningún error. Sin respuesta del servidor (la señal, o el tope de espera), un 5xx, un 408 o un 429:
+  sí. Un 403 o un 404 no, porque es una respuesta de verdad: la UL ya no es tuya o ya no existe. Un
+  401 vuelve al login.
+- **El aviso muestra la fecha de la copia más vieja**, que es la que dice cuánto puede estar atrasado
+  lo que se ve.
+- **Se vuelve a pedir solo** (`hooks/useReintentoSinSenal.js`): cuando Android avisa que volvió la
+  red, al volver a la app y cada minuto. El evento `online` solo no alcanza: en terreno el teléfono
+  puede quedar "conectado" a una antena que no deja pasar nada, y ese evento no se repite.
+- **Topes de espera: 20 s la lista de ULs y 60 s los medidores.** Con poca señal una petición no
+  falla, queda colgada minutos, y la app se quedaba en "Cargando sistema..." sin fin.
+- **El buscador** revisa primero lo cargado, que puede ser la copia. Si no está ahí y no se puede
+  preguntar al servidor, lo dice con esas palabras en vez de "Error al buscar".
+
+Lo demás ya funcionaba sin señal: la lectura de TOES (nunca dependió de la red), las notas de la UL
+(copia en el teléfono), las fotos (cola en IndexedDB, con ⏳ en el popup) y los cuadros del mapa ya
+visitados o bajados con el botón de descargar la ruta (`sw-tiles.js`).
+
+**`indexedDB.open('copiaRutas')` sin versión, desde DevTools, deja la base sin almacén.** Si no
+existía, la crea vacía en la versión 1 y la app ya no corre su `onupgradeneeded`: la copia no se
+guardaría nunca, sin ningún error. Pasó el mismo 16 de octubre. `copiaRutas.js` se repara solo
+(abre en la versión siguiente y crea el almacén); `toesStore.js` y `colaFotos.js` no. Para mirar una
+base desde DevTools, preguntar antes con `indexedDB.databases()`.
 
 
 ## Autenticación y autorización
@@ -565,14 +663,14 @@ El modelo `Medidor` mantiene **un solo índice**: `{ unidadDeLectura: 1 }`, que 
 
 ## Pruebas
 
-**Backend — 99 tests en 8 suites, todos pasando.** Jest + Supertest + `mongodb-memory-server`: los tests levantan un MongoDB en memoria, así que corren en cualquier máquina sin configurar nada y sin tocar el Atlas real. Cubren auth (registro, login, logout, token invalidado rechazado), CRUD de medidores con autorización por roles (incluido que un lector no lea una UL ajena), mover un pin, marca permanente, fotos, la caché de ULs con un cluster real, rutas e importación (rutas grandes, instalaciones repetidas y medidor lupa).
+**Backend — 124 tests en 11 suites, todos pasando.** Jest + Supertest + `mongodb-memory-server`: los tests levantan un MongoDB en memoria, así que corren en cualquier máquina sin configurar nada y sin tocar el Atlas real. Cubren auth (registro, login, logout, token invalidado rechazado), CRUD de medidores con autorización por roles (incluido que un lector no lea una UL ajena), mover un pin, marca permanente, cambio de medidor y pin desde TOES (los dos idempotentes), fotos (sin duplicar al reintentar), notas de la UL, la caché de ULs con un cluster real, rutas e importación (rutas grandes, instalaciones repetidas y medidor lupa).
 
 ```bash
 cd backend
 npm test
 ```
 
-**Frontend — 142 tests** (141 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, el agrupado por punto, qué ULs se restauran al abrir, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
+**Frontend — 206 tests** (205 pasan, 1 se omite): el parser de TOES, el cursor de lectura incremental, la visibilidad de los pines (incluido el repaso de casas cerradas), qué claves proponen marca permanente, qué cambios de medidor faltan en la base, qué servicios tomados no tienen pin (con sus resguardos), el reporte de ruta, el agrupado por punto, qué ULs se restauran al abrir, cuándo sirve la copia sin señal, las medidas de las fotos comprimidas y cuándo se reintenta subirlas, qué tiles bajar por ruta y el enlace a Google Maps (que no invierta `[lng, lat]`). Usan `node --test`, el runner nativo de Node: cero dependencias nuevas.
 
 ```bash
 cd frontend
@@ -648,7 +746,7 @@ El APK y la web salen del **mismo código**. Lo único que cambia es de dónde s
 ```bash
 cd frontend
 npm run android:apk
-# -> android/app/build/outputs/apk/debug/app-debug.apk  (~4,8 MB)
+# -> android/app/build/outputs/apk/debug/app-debug.apk  (~5,5 MB)
 ```
 
 Scripts disponibles: `android:sync` (build nativo + `cap sync`), `android:apk` (lo anterior + `scripts/compilarApk.mjs`, que busca un JDK y corre `gradlew assembleDebug`), `android:open` (abrir en Android Studio).
@@ -659,7 +757,7 @@ Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/
 `versionName`). No hay Play Store ni actualización automática, así que la única forma de saber qué
 build tiene un teléfono es preguntársela — y para eso tiene que cambiar. El `versionName` sale en el
 pie del panel lateral, así que se lee sin entrar a los ajustes de Android. La repartida hoy es la
-**2.3 (code 5)**; conviene copiar el APK con un nombre que la diga (`MLA-Maule-2.3.apk`), porque
+**2.5 (code 8)**; conviene copiar el APK con un nombre que la diga (`MLA-Maule-2.5.apk`), porque
 `app-debug.apk` se sobreescribe en cada build.
 
 Todavía es un build de **debug**: funciona igual, pero permite inspeccionar la app por cable. Firmar
@@ -689,12 +787,14 @@ La distribución es por **sideload interno**, no Play Store. Conviene agregar un
 
 ## Convenciones para quien trabaje en este repo
 
-- **Fin de línea:** los archivos antiguos son **CRLF**; los módulos nuevos de TOES son LF. Al editar con scripts, respetar el que ya tiene el archivo o el diff sale entero.
+- **Fin de línea:** el repo trabaja con `core.autocrlf=true`. En Windows los archivos antiguos (este README, `Mapa.jsx`) quedan **CRLF** y los módulos nuevos de TOES, LF. Al editar con scripts, respetar el que ya tiene el archivo o el diff sale entero. **No usar `sed -i` de Git Bash**: le saca los CR al archivo entero, y devolverlos con `sed 's/$/\r/'` deja un `\r` suelto que hace que git trate el archivo como binario (ya pasó con `Mapa.jsx`). Para revisar, `git ls-files --eol <archivo>` tiene que decir `i/lf w/crlf`.
 - **Estilo del frontend:** sin punto y coma, comillas simples, comentarios explicativos en español que dicen *por qué*, no *qué*. `npm run lint` (oxlint) tiene 3 avisos preexistentes.
 - **Nunca commitear logs reales de TOES.** Para los tests existe el fixture sintético.
 - **No subir el contenido del log a ningún servidor.** Si aparece la tentación de un endpoint para "sincronizar lecturas", es exactamente lo que la regla de privacidad prohíbe.
 - **No raspar tiles de Google** (`mt{s}.google.com/vt/`): viola los términos de Google Maps. El mapa usa OpenStreetMap y satelital de Esri.
-- El archivo central del frontend es `src/pages/Mapa.jsx` (~1400 líneas): ahí viven el mapa, el panel lateral y los botones flotantes (centrar en mí, avisos de mover y de repaso). **El render de los pines ya no está ahí**, está en `components/CapaMedidores.jsx` por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `utils/vistaDeGrupo` y tiene tests propios en `utils/vistaMarcador.test.js`.
+- El archivo central del frontend es `src/pages/Mapa.jsx` (~1600 líneas): ahí viven el buscador, el panel lateral, la carga de rutas (con su copia sin señal) y los botones flotantes (centrar en mí, avisos de mover y de repaso), y ahí se elige el motor del mapa. **El render de los pines ya no está ahí**: está en `components/MapaGL.jsx` (MapLibre) y en `components/CapaMedidores.jsx` (Leaflet), por rendimiento (ver "Rendimiento del mapa"). Los pines se agrupan por punto (`utils/agrupar.js`, 5 m), así que la decisión de visibilidad es **por grupo**: vive en `vistaDeGrupo` (`utils/vistaMarcador.js`) y tiene tests propios en `utils/vistaMarcador.test.js`.
+- **Las reglas que fallan en silencio van en `utils/`** como funciones puras con su `.test.js` al lado (`ulsActivas.js`, `marcasToes.js`, `cargaSinSenal.js`…), no en el JSX.
+- **Todo lo que toque el mapa se prueba en los dos motores.** Ya pasó que un cambio dejara a Leaflet en blanco sin que lo vieran el build, oxlint ni los tests, porque el archivo que se rompió solo se monta con ese motor.
 
 ## Decisiones de diseño (resumen)
 
