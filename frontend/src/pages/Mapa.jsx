@@ -20,6 +20,9 @@ import { useNotasUl } from '../hooks/useNotasUl'
 import { useColaFotos } from '../hooks/useColaFotos'
 import { useReintentoSinSenal } from '../hooks/useReintentoSinSenal'
 import { useSubidasUl } from '../hooks/useSubidasUl'
+import { useMarcasPendientes } from '../hooks/useMarcasPendientes'
+import { agruparPorUl, encuadreDe, textoTipos } from '../utils/marcasPendientes'
+import { formatearCiclo } from '../utils/reporteRuta'
 import { vistaDeGrupo } from '../utils/vistaMarcador'
 import { iconos } from '../utils/iconosMapa'
 import { agruparCercanos } from '../utils/agrupar'
@@ -125,6 +128,33 @@ function CentrarMapa({ coords }) {
   useEffect(() => {
     if (coords) map.setView(coords, 17)
   }, [coords, map])
+  return null
+}
+
+// Encuadra varios puntos a la vez (modo revisión). La contraparte de MapaGL
+// está en su efecto de `encuadre`; el tope de zoom es para un solo punto.
+//
+// Espera un cuadro antes de mover el mapa, y no es de adorno. Entrar al modo
+// revisión cambia los pines Y pide el encuadre en el mismo render; en ese
+// commit CapaMedidores suelta sus listeners de moveend (useMapEvents se vuelve
+// a suscribir con cada render) y los vuelve a poner DESPUÉS de este efecto.
+// Movido en ese hueco, el mapa encuadraba pero la capa se quedaba con el cuadro
+// de antes y dibujaba 2 pines de 5 (2026-10-21).
+function EncuadrarMapa({ encuadre }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!encuadre) return
+    // El margen, a la medida del mapa: en el teléfono con el panel abierto
+    // quedan ~130 px, y 40 de cada lado lo encogían a la mitad.
+    const id = requestAnimationFrame(() => {
+      const m = Math.min(40, Math.round(Math.min(map.getSize().x, map.getSize().y) * 0.1))
+      map.fitBounds(
+        [[encuadre.sur, encuadre.oeste], [encuadre.norte, encuadre.este]],
+        { padding: [m, m], maxZoom: 16 }
+      )
+    })
+    return () => cancelAnimationFrame(id)
+  }, [encuadre, map])
   return null
 }
 
@@ -470,10 +500,36 @@ export default function Mapa() {
     tileerror: () => setFotoFallo(true),
   }), [])
 
+  // Modo revisión (admin y supervisor, que son quienes confirman): el mapa
+  // muestra solo las marcas por confirmar de TODAS las ULs, aunque no estén
+  // marcadas en el panel (utils/marcasPendientes.js). Lo demás de la app
+  // —TOES, el Resumen, el buscador— sigue con las ULs marcadas: solo cambia
+  // qué pines se dibujan.
+  const puedeConfirmar = usuario.rol === 'admin' || usuario.rol === 'supervisor'
+  const pendientes = useMarcasPendientes(puedeConfirmar)
+  const recargarPendientes = pendientes.recargar
+  const [revisando, setRevisando] = useState(false)
+  // { sur, oeste, norte, este }: un objeto nuevo por pedido, así encuadrar dos
+  // veces seguidas encuadra las dos veces.
+  const [encuadre, setEncuadre] = useState(null)
+  const gruposPendientes = useMemo(
+    () => agruparPorUl(pendientes.medidores, toes.config),
+    [pendientes.medidores, toes.config]
+  )
+  const totalPendientes = gruposPendientes.reduce((s, g) => s + g.items.length, 0)
+  const medidoresEnMapa = revisando ? pendientes.medidores : medidores
+  // El repaso de casas cerradas no aplica a lo pendiente: con él prendido, el
+  // modo revisión dejaría el mapa vacío.
+  const soloRepasoMapa = toes.soloRepaso && !revisando
+
+  // Una marca nueva (la propone TOES al leer el log) llega con la recarga de
+  // medidores: ahí se vuelve a contar lo pendiente.
+  useEffect(() => { recargarPendientes() }, [medidores, recargarPendientes])
+
   // Junto los medidores que están prácticamente en el mismo punto (mismo
   // poste o misma casa) en un solo pin con contador, porque si no quedan
   // uno encima de otro y no hay forma de tocar los de abajo
-  const grupos = useMemo(() => agruparCercanos(medidores, 5), [medidores])
+  const grupos = useMemo(() => agruparCercanos(medidoresEnMapa, 5), [medidoresEnMapa])
 
   // Capa TOES: para cada grupo, qué servicios quedan por visitar, con qué
   // icono y opacidad. Saca del pin lo que el lector ya tomó en el ciclo
@@ -526,9 +582,9 @@ export default function Mapa() {
   // solo se recalcula el grupo donde está el medidor elegido.
   const vistasBase = useMemo(
     () => grupos.map((g) => vistaDeGrupo(
-      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, null, toes.soloRepaso
+      g.medidores, toes.indice, toes.config, iconos, toes.verTomados, null, soloRepasoMapa
     )),
-    [grupos, toes.indice, toes.config, toes.verTomados, toes.soloRepaso]
+    [grupos, toes.indice, toes.config, toes.verTomados, soloRepasoMapa]
   )
 
   const vistas = useMemo(() => {
@@ -540,10 +596,10 @@ export default function Mapa() {
     const copia = vistasBase.slice()
     copia[i] = vistaDeGrupo(
       grupos[i].medidores, toes.indice, toes.config, iconos, toes.verTomados, seleccionadoId,
-      toes.soloRepaso
+      soloRepasoMapa
     )
     return copia
-  }, [vistasBase, grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId, toes.soloRepaso])
+  }, [vistasBase, grupos, toes.indice, toes.config, toes.verTomados, seleccionadoId, soloRepasoMapa])
 
   const [campos, setCampos] = useState({
     instalacion: '', zona: 'MAULE', establecimiento: '',
@@ -891,11 +947,40 @@ export default function Mapa() {
           situacion: accion === 'confirmar' ? 'confirmada' : 'rechazada',
         })
       }
-      await cargarMedidores()
+      // Las dos listas: la de las ULs marcadas y la del modo revisión, que
+      // puede tener puntos de rutas que no están cargadas.
+      await Promise.all([cargarMedidores(), recargarPendientes()])
     } catch (err) {
       alert(err.response?.data?.error || 'No se pudo actualizar la marca')
     }
-  }, [cargarMedidores])
+  }, [cargarMedidores, recargarPendientes])
+
+  // Modo revisión: entrar encuadra todo lo pendiente; "📍" va a un punto y abre
+  // su popup, igual que el buscador. En el teléfono el panel tapa el mapa, así
+  // que se cierra para ver el popup.
+  // Un objeto nuevo cada vez: así "Ver todos" vuelve a encuadrar aunque el
+  // rectángulo sea el mismo (después de acercarse a un punto con 📍, o de
+  // cerrar el panel en el teléfono, que agranda el mapa).
+  function verTodosLosPendientes() {
+    const e = encuadreDe(pendientes.medidores)
+    if (e) setEncuadre({ ...e })
+  }
+  function entrarARevision() {
+    setSeleccionadoId(null)
+    setGrupoSeleccionado(null)
+    setRevisando(true)
+    verTodosLosPendientes()
+  }
+  function salirDeRevision() {
+    setSeleccionadoId(null)
+    setGrupoSeleccionado(null)
+    setRevisando(false)
+  }
+  function verPendiente(item) {
+    if (item.lat != null) setCentroMapa([item.lat, item.lng])
+    seleccionarMedidor(item._id)
+    if (esMobil) setPanelVisible(false)
+  }
 
   const handleEliminar = useCallback(async (instalacion) => {
     if (!confirm(`¿Eliminar el medidor ${instalacion}?`)) return
@@ -1166,6 +1251,69 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               )}
             </div>
 
+            {/* Lo que espera que alguien confirme, de todas las ULs (admin y
+                supervisor). Arriba, porque en modo revisión es con lo que se
+                trabaja; cerrado ocupa una línea. */}
+            {puedeConfirmar && (
+              <div style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid #e2e8f0', fontSize: '0.78rem' }}>
+                {!revisando ? (
+                  <button type="button" className="btn btn-sm btn-outline-secondary w-100"
+                    disabled={pendientes.estado !== 'ok' || totalPendientes === 0}
+                    onClick={entrarARevision}>
+                    🚫 Por confirmar{' '}
+                    {pendientes.estado === 'ok'
+                      ? `(${totalPendientes})`
+                      : pendientes.estado === 'error' ? '· sin respuesta del servidor' : '…'}
+                  </button>
+                ) : (
+                  <>
+                    <div className="d-flex align-items-center justify-content-between mb-1">
+                      <strong style={{ color: '#2b6cb0', fontSize: '0.82rem' }}>🚫 Por confirmar ({totalPendientes})</strong>
+                      <button type="button" className="btn btn-sm btn-outline-secondary py-0"
+                        onClick={salirDeRevision}>Salir</button>
+                    </div>
+                    {totalPendientes === 0 && (
+                      <div style={{ color: '#2f855a' }}>✓ No queda nada por confirmar.</div>
+                    )}
+                    {gruposPendientes.map((g) => (
+                      <div key={g.ul} style={{ marginTop: '0.35rem' }}>
+                        <div style={{ fontWeight: 600 }}>
+                          {g.ul}{' '}
+                          <span style={{ fontWeight: 400, color: '#718096' }}>· {textoTipos(g.porTipo, toes.config)}</span>
+                        </div>
+                        {g.items.map((x) => (
+                          <div key={x._id} className="d-flex align-items-center gap-1"
+                            style={{ padding: '0.15rem 0', borderTop: '1px solid #edf2f7' }}>
+                            <span aria-hidden="true" style={{
+                              width: 8, height: 8, borderRadius: '50%', background: x.color, flexShrink: 0,
+                            }} />
+                            <div style={{ flex: 1, minWidth: 0, lineHeight: 1.15 }}>
+                              <div className="text-truncate">{x.instalacion}</div>
+                              <div className="text-truncate" style={{ fontSize: '0.68rem', color: '#718096' }}>
+                                {x.nombreTipo}{x.cicloOrigen ? ` · ciclo ${formatearCiclo(x.cicloOrigen)}` : ''}
+                              </div>
+                            </div>
+                            <button type="button" className="btn btn-sm btn-outline-secondary py-0 px-1"
+                              title="Ver en el mapa" aria-label={`Ver ${x.instalacion} en el mapa`}
+                              disabled={x.lat == null} onClick={() => verPendiente(x)}>📍</button>
+                            <button type="button" className="btn btn-sm btn-outline-success py-0 px-1"
+                              title="Confirmar" aria-label={`Confirmar ${x.instalacion}`}
+                              onClick={() => resolverMarca(x.instalacion, 'confirmar')}>✓</button>
+                            <button type="button" className="btn btn-sm btn-outline-danger py-0 px-1"
+                              title="Sí hay medidor" aria-label={`Sí hay medidor en ${x.instalacion}`}
+                              onClick={() => resolverMarca(x.instalacion, 'rechazar')}>✗</button>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <div style={{ fontSize: '0.68rem', color: '#a0aec0', marginTop: '0.35rem' }}>
+                      ✓ confirma la marca · ✗ "sí hay medidor" · 📍 la muestra en el mapa
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <PanelToes toes={toes} medidores={medidores} ulsActivas={ulsActivas} />
             {colaFotos.pendientes.length > 0 && (
               <div style={{
@@ -1311,7 +1459,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               ninguna UL marcada tiene lecturas: pasó en terreno que quedó
               prendido, se marcó una ruta recién importada (sin nada en TOES)
               y el mapa salió vacío, sin forma de ver por qué ni de apagarlo. */}
-          {toes.soloRepaso && !moviendo && !modoAgregar && (
+          {soloRepasoMapa && !moviendo && !modoAgregar && (
             <div style={{
               position: 'absolute', top: '3.5rem', left: '50%',
               transform: 'translateX(-50%)',
@@ -1367,7 +1515,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               Ahora es un aviso encima del mapa y todo lo demás sigue andando.
               El del WebView va en la misma columna, arriba, para que los dos
               se lean si aparecen juntos. */}
-          {((AVISO_WEBVIEW && !webViewEntendido) || error || avisoSinSenal) && (
+          {((AVISO_WEBVIEW && !webViewEntendido) || revisando || error || avisoSinSenal) && (
             <div style={{
               position: 'absolute', top: (moviendo || modoAgregar) ? '7rem' : '3.5rem',
               left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
@@ -1384,6 +1532,27 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
                   <span>⚠️ {AVISO_WEBVIEW}</span>
                   <button type="button" className="btn btn-outline-danger btn-sm py-0"
                     onClick={() => setWebViewEntendido(true)}>Entendido</button>
+                </div>
+              )}
+              {/* En el mapa y no solo en el panel: con el panel cerrado (en el
+                  teléfono se cierra al tocar 📍) no habría cómo saber por qué
+                  se ven solo esos pines, ni cómo volver. Con el panel abierto
+                  en el teléfono sobra (el panel dice lo mismo) y no cabe en
+                  el pedazo de mapa que queda. */}
+              {revisando && (!esMobil || !panelVisible) && (
+                <div style={{
+                  backgroundColor: '#4a5568', color: 'white', borderRadius: '20px',
+                  padding: '0.3rem 0.4rem 0.3rem 0.8rem', fontSize: '0.8rem', whiteSpace: 'nowrap',
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                }}>
+                  🚫 {totalPendientes} por confirmar
+                  <button type="button" className="btn btn-light btn-sm py-0" onClick={verTodosLosPendientes}>
+                    Ver todos
+                  </button>
+                  <button type="button" className="btn btn-light btn-sm py-0" onClick={salirDeRevision}>
+                    Salir
+                  </button>
                 </div>
               )}
               {(error || avisoSinSenal) && (
@@ -1450,6 +1619,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
               miUbicacionActiva={miUbicacionActiva}
               onErrorUbicacion={avisarErrorUbicacion}
               pedidoCentrar={pedidoCentrar}
+              encuadre={encuadre}
             />
           ) : (
           <MapContainer
@@ -1559,6 +1729,7 @@ Son tantos que solo se bajarán ${p.cantidad} de ${p.totalSinTope}, empezando po
             <RecordarCapa onCambio={setCapaActiva} />
             <RegistrarParaMedicion grupos={grupos} />
             {centroMapa && <CentrarMapa coords={centroMapa} />}
+            <EncuadrarMapa encuadre={encuadre} />
             <InvalidarTamano />
             <CapturarClick
               onClickMapa={clickEnMapa}

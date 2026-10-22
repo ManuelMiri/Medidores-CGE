@@ -175,7 +175,7 @@ export default function MapaGL({
   onElegir, onElegirGrupo, onEditar, onEliminar, onFotoSubida, onResolverMarca,
   capa, onCambioCapa,
   centroMapa, modoAgregar, onClickMapa, nuevoPunto,
-  miUbicacionActiva, onErrorUbicacion, pedidoCentrar,
+  miUbicacionActiva, onErrorUbicacion, pedidoCentrar, encuadre,
 }) {
   const contenedor = useRef(null)
   const mapaRef = useRef(null)
@@ -332,6 +332,22 @@ export default function MapaGL({
     if (!listo || !centroMapa) return
     mapaRef.current?.easeTo({ center: [centroMapa[1], centroMapa[0]], zoom: 17, duration: 400 })
   }, [centroMapa, listo])
+
+  // --------------------------------- encuadrar varios puntos (modo revisión)
+  // `encuadre` es { sur, oeste, norte, este }, un objeto nuevo por pedido. El
+  // tope de zoom es para un solo punto, que da un rectángulo sin área.
+  useEffect(() => {
+    const mapa = mapaRef.current
+    if (!listo || !encuadre || !mapa) return
+    // El margen, a la medida del mapa: en el teléfono con el panel abierto
+    // quedan ~130 px, y 60 de cada lado no dejaban lugar para los puntos.
+    const lienzo = mapa.getContainer()
+    const margen = Math.min(60, Math.round(Math.min(lienzo.clientWidth, lienzo.clientHeight) * 0.1))
+    mapa.fitBounds(
+      [[encuadre.oeste, encuadre.sur], [encuadre.este, encuadre.norte]],
+      { padding: margen, maxZoom: 16, duration: 500 }
+    )
+  }, [encuadre, listo])
 
   // ------------------------------------- el popup del medidor seleccionado
   //
