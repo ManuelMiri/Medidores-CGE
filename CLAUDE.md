@@ -445,18 +445,77 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 
 ## Estado y qué falta
 
-`main` y `Develop` están en `c9b6af6` (2026-10-21, 23:11 UTC): `sin-senal`, `fotos-y-webview` y
-`reporte-y-subidas`. **La web sí** (Vercel en `success`, el bundle trae "Subida por"). **El
-backend NO**: Railway sigue en `61ef7af` (2026-10-14) porque ese día tenía un "Railway Platform
-Outage" con todos los builds y despliegues pausados (status.railway.com, desde las 07:24 UTC; el
-20-10 ya había pausado builds). No fue configuración: hasta el 14-10 desplegaba solo en segundos.
-Cuando vuelva, comprobar que `GET /api/rutas/subidas` sin token dé 401 (hoy da 404); si Railway no
-lo toma solo, Manuel tiene que hacer "Deploy latest commit" (el usuario no tiene acceso a
-Railway). Hasta entonces el bloque "👤 Subida por" muestra "…" y nada más cambia. Railway
-habló además de un incidente de seguridad (rotó credenciales de sus buckets, que no se usan acá):
-otra razón para hacer la rotación de Atlas y Cloudinary pendiente.
+### Publicado y sin publicar (al 2026-10-22, 00:53 UTC)
 
-Lo que ya estaba en producción antes del 2026-10-21 (backend `61ef7af`):
+**En `main` y `Develop`: `c9b6af6`** (2026-10-21, 23:11 UTC) = `sin-senal` + `fotos-y-webview` +
+`reporte-y-subidas`.
+- **Web (Vercel): publicada.** El bundle trae "Subida por".
+- **Backend (Railway): NO.** Sigue en `61ef7af` (2026-10-14). Railway tiene un "Railway Platform
+  Outage" con todos los builds y despliegues pausados (status.railway.com, desde el 2026-10-21 a
+  las 07:24 UTC; el 20-10 ya los había pausado; a las 00:22 UTC del 22-10 seguían pausados). No es
+  configuración: hasta el 14-10 desplegaba solo, en segundos. Habló además de un incidente de
+  seguridad (rotó credenciales de sus buckets, que no se usan acá): otra razón para la rotación
+  de Atlas y Cloudinary pendiente.
+- **Mientras tanto, en la app:** "👤 Subida por" muestra "…" y el botón del modo revisión dice
+  "🚫 Por confirmar · sin respuesta del servidor" (el backend viejo contesta 404). Es lo esperado y
+  nada más cambia. Se ofreció cambiar ese texto a "disponible al actualizar el servidor"; no está
+  hecho.
+
+**Sin publicar: la rama `revision-marcas`** (encima de `c9b6af6`, fast-forward): `ca953ff` (docs),
+`ee15fa9` (fix del popup de MapLibre, que también corrige producción), la ruta
+`GET /medidores/marcas-pendientes`, el modo revisión y su documentación.
+
+**Cuando Railway vuelva:**
+1. Con el OK del usuario: `git fetch`, comprobar que `main` no se movió y darle el comando
+   `git push origin revision-marcas:main revision-marcas:Develop` (el push a `main` lo bloquea el
+   clasificador; lo corre él).
+2. Comprobar el backend con `GET /api/rutas/subidas` **sin token: tiene que dar 401** (hoy 404).
+   Ojo: `/api/medidores/marcas-pendientes` sin token **ya da 401** con el backend viejo, porque la
+   toma `GET /:instalacion` y `proteger` corta antes: no sirve para comprobar.
+3. Si Railway no lo despliega solo, Manuel tiene que hacer "Deploy latest commit" (el usuario no
+   tiene acceso a Railway). Mensaje para él ya redactado en la sesión del 2026-10-21.
+4. En el teléfono: el bloque "👤 Subida por" con nombres (E3510001 → Ccastillo) y "🚫 Por
+   confirmar (13)".
+
+### APKs
+
+- **Repartida: la 2.5 (code 8)**, build de debug del commit `2a876ed`. Su copia
+  (`MLA-Maule-2.5.apk`) estaba en `frontend/android/app/build/outputs/apk/debug/` y **se perdió el
+  2026-10-21**: cuando Gradle vuelve a empaquetar, limpia esa carpeta. Si hace falta, se recompila
+  desde ese commit (la llave de debug es la de este PC).
+- **Lista para repartir: la 2.6 (code 9)**, `MLA-Maule-2.6.apk` en la **raíz del repo** (las copias
+  van ahí, al lado de `MLA-Maule-2.2.apk`; `*.apk` está en el `.gitignore`). Es el build de
+  `revision-marcas`: trae todo lo del 2026-10-21. Instalada en el teléfono del usuario. Conviene
+  repartirla después de publicar el backend: sin él, "Subida por" y el modo revisión no muestran
+  nada.
+- Lo de solo frontend no llega a los teléfonos que sigan con una versión anterior; lo del backend sí.
+
+### Lo nuevo del 2026-10-21 y cómo se probó
+
+Todo en el teléfono del usuario; lo de mapa, en los dos motores. El detalle de cada cosa está en
+"Comportamientos decididos".
+- **Sin señal:** con la red cortada al WebView (`Network.emulateNetworkConditions`), el 10-16 y el
+  10-21: mapa con la copia y aviso "📵"; al volver la red, el aviso se va solo en menos de 5 s.
+- **Cola de fotos en archivos:** una foto sintética en la cola vieja (IndexedDB), para la
+  instalación inexistente `PRUEBA-COLA-FOTOS`, pasó sola a `files/colaFotos/`, la base `fotos` se
+  borró, la subida leyó el archivo y el servidor contestó 404 (antes de Cloudinary: no quedó nada);
+  después se borró a mano. **Falta: una foto de verdad con la cámara, sin señal, y verla subir sola.**
+  Agrega `@capacitor/filesystem` 8.1.4, fijado exacto (la 8.1.5 tenía 6 días); no suma permisos.
+- **Aviso del WebView 155:** con el user agent cambiado a Chrome/155 por CDP sale y "Entendido" lo
+  cierra; con el real (134) no sale.
+- **Listas del reporte:** sobre E3515013, casas cerradas 16 líneas y pendientes 6, todas
+  "instalación - serie"; el cambio de medidor con "(antes …)"; "Copiar lista" con un toque de
+  verdad da "✓ Copiada".
+- **"👤 Subida por":** con la respuesta de `/subidas` puesta por CDP (`Fetch`) igual a la de la
+  consulta real: "Ccastillo" en E3510001, "sin registro" con una vacía, "…" contra producción. La
+  agregación se corrió solo-lectura contra la base: 25 de 27 ULs tienen quién la subió.
+- **Modo revisión:** al 2026-10-21 hay 13 propuestas en la base (11 eriazos y 2 "no encontrado",
+  en 7 ULs). Probado con 5 pendientes **inventados** (`PRUEBA-…`, que no existen: un PATCH escapado
+  daría 404) servidos por CDP y el PATCH de ✓/✗ interceptado sin llegar al servidor: lista por UL,
+  encuadre, ✓ y ✗, 📍 con popup, "Ver todos" y "Salir".
+
+### Lo que ya estaba en producción antes del 2026-10-21 (backend `61ef7af`)
+
 - lo anterior: TOES, la marca permanente, MapLibre, el buscador por UL y el panel desplegable;
 - de la rama `terreno-oct`: mover un pin, "Solo casas cerradas" (con aviso "Ver todo"), "Ir",
   "centrar en mí", hasta 1500 medidores por UL, rutas grandes al importar (límite 10 MB),
@@ -471,53 +530,10 @@ Lo que ya estaba en producción antes del 2026-10-21 (backend `61ef7af`):
 Verificado en producción: se creó el pin 103694009 (E3550001) y E713709426 quedó con la serie
 nueva.
 
-El APK repartido es la **2.5 (code 8)**, build de debug del commit `2a876ed`. Su copia
-(`MLA-Maule-2.5.apk`) estaba en `frontend/android/app/build/outputs/apk/debug/` y **se perdió el
-2026-10-21**: cuando Gradle vuelve a empaquetar, limpia esa carpeta. Si hace falta, se recompila
-desde ese commit (la llave de debug es la de este PC). Las copias para repartir van en la **raíz
-del repo**, al lado de `MLA-Maule-2.2.apk` (`*.apk` está en el `.gitignore`). Lo de solo frontend
-no llega a los teléfonos que sigan con una versión anterior; lo del backend sí.
-
-En la rama `fotos-y-webview` (sin publicar), la **2.6 (code 9)**: la cola de fotos en archivos y el
-aviso del WebView 155, sobre todo lo de `sin-senal` (que tampoco está en ningún APK repartido).
-Agrega `@capacitor/filesystem` 8.1.4, fijado exacto (la 8.1.5 tenía 6 días), que no suma permisos
-al manifest. Copiada como `MLA-Maule-2.6.apk` en la raíz del repo. Instalada en el teléfono del
-usuario el 2026-10-21 y probada:
-- una foto sintética puesta en la cola vieja (IndexedDB) para la instalación `PRUEBA-COLA-FOTOS`
-  pasó sola a `files/colaFotos/`, la base `fotos` se borró, la subida leyó el archivo y el servidor
-  contestó 404 (antes de Cloudinary: no queda nada), y la foto quedó marcada con el motivo. Después
-  se borró a mano;
-- con el user agent cambiado a Chrome/155 por CDP, el aviso sale en los dos motores y "Entendido"
-  lo cierra; con el real (134) no sale.
-Lo que falta probar es sacar una foto de verdad con la cámara, sin señal, y verla subir sola.
-
-Encima, en la rama `reporte-y-subidas` (sin publicar, sale en la misma 2.6): las listas del reporte
-y "Subida por …". **Toca el backend** (`GET /rutas/subidas`, ruta nueva: los APK viejos no la usan).
-Probado en el teléfono el 2026-10-21 sobre E3515013, con la respuesta de `/subidas` puesta por CDP
-(`Fetch`, porque producción todavía no la tiene) igual a la que da la consulta real: casas
-cerradas 16 líneas y pendientes 6, todas "instalación - serie", una lista abierta a la vez; el
-cambio de medidor con "(antes …)"; "Copiar lista" con un toque de verdad da "✓ Copiada". El bloque
-"👤 Subida por", sobre E3510001 (sin lecturas de TOES en el ciclo): "Ccastillo" con la respuesta
-real, "sin registro" con una vacía y "…" contra producción, que hoy da 404. La agregación se corrió
-solo-lectura contra la base: 25 de 27 ULs tienen quién la subió. **Hasta publicar el backend, el
-bloque muestra "…"**. (`reporte-y-subidas` ya está en `main`: ver arriba.)
-
-En la rama `revision-marcas` (sin publicar, encima de `reporte-y-subidas`): el **modo revisión de
-marcas por confirmar** y dos arreglos del mapa que salieron al probarlo (ver Trampas). **Toca el
-backend** (`GET /medidores/marcas-pendientes`, ruta nueva). Al 2026-10-21 en la base hay 13
-propuestas: 11 eriazos y 2 "no encontrado", en 7 ULs. Probado en el teléfono, en los dos motores,
-con 5 pendientes **inventados** (instalaciones `PRUEBA-…`, que no existen: un PATCH escapado daría
-404) servidos por CDP, y el PATCH de ✓/✗ interceptado sin llegar al servidor: lista agrupada por
-UL, encuadre de los 5, ✓ y ✗ mandan `confirmada`/`rechazada` y la lista baja, 📍 abre el popup y
-cierra el panel, "Ver todos" reencuadra, "Salir" vuelve a la UL marcada y cierra el popup.
-
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
 
-El modo sin señal está probado en el teléfono con la red cortada al WebView
-(`Network.emulateNetworkConditions`), en los dos motores, el 2026-10-16 y de nuevo el 2026-10-21:
-con la red cortada, el mapa con la copia y el aviso "📵"; al volver la red, el aviso se va solo en
-menos de 5 s.
+### TOES y el teléfono
 
 **TOES y el WebView (2026-10-16):** con el Android System WebView 155, TOES deja de sincronizar ("No
 se pudo establecer la conexión"): sus consultas salen sin cookies y el servidor contesta 403. Con la
@@ -528,11 +544,19 @@ Maps vuelve a instalar la 155. Desde entonces el usuario desinstala las actualiz
 **todos los días** y trabaja con la **134.0.6998.135 de fábrica** (visto el 2026-10-21), con la que
 TOES sincroniza. El riesgo es el orden: si TOES o esta app alcanzan a abrirse con la 155, al volver
 a la 134 se borra lo que tengan en el WebView (en TOES, las lecturas sin sincronizar; acá, la sesión
-y, hasta la 2.5, las fotos en cola). Quedan dos respaldos de TOES en `/data/local/tmp` del teléfono, para borrar
-cuando el supervisor confirme.
+y, hasta la 2.5, las fotos en cola). Quedan dos respaldos de TOES en `/data/local/tmp` del
+teléfono, para borrar cuando el supervisor confirme.
 
-Pendiente:
+### Pendiente
 
+- **Publicar `revision-marcas` y el backend cuando Railway vuelva** (pasos arriba), y después
+  repartir la 2.6.
+- **Probar en terreno una foto de verdad sin señal** (con la 2.6): tiene que quedar con ⏳ y subir
+  sola al volver la señal.
+- **La primera vez que una marca pase a un ciclo siguiente** (principios de noviembre; la primera es
+  E3542001, ciclo 07-10): abrir la ruta y ver que los pines marcados salgan marcados. Todas las
+  marcas de hoy son de octubre y ninguna pasó todavía por un ciclo nuevo. Hay 11 eriazos sin
+  confirmar: quedan igual, pero "por confirmar".
 - **Comprimir las respuestas del backend** (`compression` en Express): hoy no se comprimen, y con poca
   señal bajar los medidores de una UL larga (del orden de un MB) tarda.
 - **Avisar del WebView 155 a CGE o al supervisor:** la falla es de TOES (sus consultas salen sin
@@ -544,7 +568,12 @@ Pendiente:
   después de terminar la ruta y antes del cierre de las 17:07. Mirar en el próximo caso si TOES
   escribe algo al **recibir** la orden devuelta: una descarga, otro `sPath` o algún campo que cambie.
   Si no escribe nada, habrá que marcarlo a mano (un botón en el popup).
-- **Rotar las credenciales de Atlas y Cloudinary**: quedaron expuestas en una sesión anterior.
+- **Rotar las credenciales de Atlas y Cloudinary**: quedaron expuestas en una sesión anterior (el
+  usuario las pegó en el chat el 2026-10-07/08). **No antes de que Railway pueda desplegar**: si se
+  cambia la contraseña de Atlas y el backend no puede tomar la nueva, se queda sin base. Sin corte:
+  crear un usuario nuevo en Atlas y una clave nueva en Cloudinary, ponerlas en las variables de
+  Railway (eso lo hace Manuel) y desplegar, probar (entrar y subir una foto) y recién ahí borrar las
+  viejas y actualizar `backend/.env`.
 - Sacar Leaflet cuando MapLibre lleve un ciclo de ruta completo sin sorpresas.
 - Crear una cuenta `lector` (hoy las 4 cuentas son `admin`, ese camino de permisos está sin probar en
   producción; en los tests del backend sí). El último hueco conocido (`?ul=` ajena) ya está cerrado.

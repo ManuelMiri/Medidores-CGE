@@ -8,9 +8,9 @@ El backend además fue usado como base para el encargo de la Unidad 2 del ramo P
 
 | Pieza | Dónde vive | Estado |
 |---|---|---|
-| Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción |
+| Backend Express | Railway (`https://medidores-cge-production.up.railway.app`) | En producción. Al 22-10 sigue en la versión del 14-10: la nueva espera a que Railway vuelva a desplegar (tuvo una caída de su plataforma) |
 | Frontend web / PWA | Vercel (`https://medidores-cge.vercel.app`) | En producción |
-| APK Android (Capacitor) | `frontend/android/`, sideload interno | Versión **2.5 (8)**. Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
+| APK Android (Capacitor) | `frontend/android/`, sideload interno | Repartida la **2.5 (8)**; la **2.6 (9)** está lista. Lee la carpeta `/TOES` sola, cachea tiles y corre verificado en un Galaxy A36 |
 | Integración con logs de TOES | Solo en el teléfono (IndexedDB) | Completa: parser, visibilidad del mapa y lectura automática de `/TOES` en el APK |
 
 Base de datos: MongoDB Atlas, base `cge_db`. Las 4 cuentas existentes son de rol `admin`; **no existe ninguna cuenta `lector` todavía**, así que ese camino de permisos está sin probar end-to-end (en los tests del backend sí, y el último hueco conocido, `GET /medidores?ul=` con una UL ajena, ya está cerrado).
@@ -51,7 +51,7 @@ Y en el backend, que les sirve también a los APK viejos: rutas grandes al impor
 - **Modo revisión "🚫 Por confirmar"** (admin y supervisor): junta en el mapa las marcas permanentes que esperan que alguien las confirme (sitio eriazo, no encontrado, sin empalme), de **todas** las rutas, y las lista por UL con ✓ confirmar, ✗ "sí hay medidor" y 📍 para verla en el mapa. Antes había que marcar cada UL y buscar pin por pin. También necesita el backend nuevo.
 - **Arreglo en el mapa nuevo:** la ficha de un pin se cerraba sola cada vez que se recargaban los medidores (al confirmar una marca, subir una foto o cuando TOES proponía una marca).
 
-Todo es del frontend: llega a los teléfonos con el APK, no con la web.
+A los teléfonos les llega con el APK 2.6; la web la recibe al publicarse. **"Quién subió cada UL" y el modo revisión además necesitan el backend nuevo**: hasta que esté publicado, el bloque muestra "…" y el botón dice "Por confirmar · sin respuesta del servidor". Lo demás funciona con el backend actual.
 
 ## Stack
 
@@ -791,7 +791,7 @@ El APK y la web salen del **mismo código**. Lo único que cambia es de dónde s
 ```bash
 cd frontend
 npm run android:apk
-# -> android/app/build/outputs/apk/debug/app-debug.apk  (~5,5 MB)
+# -> android/app/build/outputs/apk/debug/app-debug.apk  (~5,7 MB)
 ```
 
 Scripts disponibles: `android:sync` (build nativo + `cap sync`), `android:apk` (lo anterior + `scripts/compilarApk.mjs`, que busca un JDK y corre `gradlew assembleDebug`), `android:open` (abrir en Android Studio).
@@ -802,7 +802,8 @@ Datos del build: package `cl.mla.maule`, `minSdk 24` (Android 7+), `compileSdk`/
 `versionName`). No hay Play Store ni actualización automática, así que la única forma de saber qué
 build tiene un teléfono es preguntársela — y para eso tiene que cambiar. El `versionName` sale en el
 pie del panel lateral, así que se lee sin entrar a los ajustes de Android. La repartida hoy es la
-**2.5 (code 8)**; conviene copiar el APK con un nombre que la diga (`MLA-Maule-2.5.apk`), porque
+**2.5 (code 8)**, y la **2.6 (code 9)** espera en la raíz del repo como `MLA-Maule-2.6.apk`.
+Conviene copiar el APK con un nombre que la diga (`MLA-Maule-2.6.apk`), porque
 `app-debug.apk` se sobreescribe en cada build. **La copia va en la raíz del repo** (`*.apk` está en
 el `.gitignore`) y no al lado de `app-debug.apk`: cuando Gradle vuelve a empaquetar, limpia esa
 carpeta entera. Así se perdió la copia de la 2.5 el 2026-10-21.
