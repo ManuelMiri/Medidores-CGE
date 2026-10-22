@@ -22,7 +22,7 @@
 // (DetalleMedidor.jsx). Lo único propio de cada motor es cómo se abre y se
 // cierra la ventanita.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 // maplibre-gl 6 ya no trae export default en su build ESM: hay que pedir los
 // nombres sueltos. Con el default el build muere en MISSING_EXPORT.
@@ -368,6 +368,37 @@ export default function MapaGL({
     setAbierto(i)
   }, [seleccionadoId, pulsoSeleccion, vistas, listo])
 
+  // ------------------------------- el popup sigue al medidor, no al índice
+  //
+  // `abierto` es una posición en `grupos`, y `grupos` se rearma con cada
+  // recarga de medidores. Si la lista cambia —entra o sale un pin antes en la
+  // lista, o el modo revisión cambia qué pines se dibujan— esa posición pasa a
+  // ser OTRO punto, y el popup saltaba a un medidor que nadie tocó. Se sigue al
+  // primer medidor del grupo abierto: si sigue en el mapa, el popup va con él;
+  // si ya no está, se cierra.
+  //
+  // Solo cuando cambian los grupos. Si cambia `abierto` con los mismos grupos
+  // es que alguien tocó otro pin, y ese es el que manda. Layout y no un efecto
+  // común: así se corrige antes de pintar, sin un cuadro con el medidor
+  // equivocado.
+  const seguimiento = useRef({ grupos: null, id: null })
+  useLayoutEffect(() => {
+    const s = seguimiento.current
+    const cambiaronGrupos = s.grupos !== grupos
+    s.grupos = grupos
+    if (abierto == null) {
+      s.id = null
+      return
+    }
+    if (!cambiaronGrupos || s.id == null) {
+      s.id = grupos[abierto]?.medidores[0]?._id ?? null
+      return
+    }
+    const i = grupos.findIndex((g) => g.medidores.some((m) => m._id === s.id))
+    if (i === -1) setAbierto(null)
+    else if (i !== abierto) setAbierto(i)
+  }, [abierto, grupos])
+
   // --------------------------------------------------- montar/quitar popup
   useEffect(() => {
     const mapa = mapaRef.current
@@ -395,10 +426,16 @@ export default function MapaGL({
       popupRef.current.on('close', () => setAbierto(null))
     }
     const lngLat = [g.position[1], g.position[0]]
-    popupRef.current
-      .setLngLat(lngLat)
-      .setDOMContent(divPopup.current)
-      .addTo(mapa)
+    popupRef.current.setLngLat(lngLat)
+    // Solo se agrega si no está: addTo() sobre un popup ya abierto llama
+    // primero a remove(), que dispara 'close', y el handler de arriba lo daba
+    // por cerrado. Como este efecto corre con cada cambio de `grupos`, una
+    // recarga de medidores (confirmar una marca, subir una foto, una marca que
+    // propone TOES) cerraba sola la ficha que se estaba mirando. Se vio en el
+    // modo revisión (2026-10-21): el popup duraba medio segundo.
+    if (!popupRef.current.isOpen()) {
+      popupRef.current.setDOMContent(divPopup.current).addTo(mapa)
+    }
 
     // Correr el mapa lo justo para que el popup entre.
     //
