@@ -129,6 +129,25 @@ router.get('/uls', proteger, async (req, res) => {
   }
 })
 
+// GET /api/medidores/marcas-pendientes — admin y supervisor
+// Las marcas permanentes que esperan que una persona decida (situación
+// 'propuesta'), de TODAS las ULs: el modo revisión del mapa las muestra
+// juntas, aunque no estén marcadas en el panel. Son los mismos roles que
+// pueden confirmar (PATCH /:instalacion/marca).
+//
+// Va ANTES de GET /:instalacion: si no, Express tomaría "marcas-pendientes"
+// como un número de instalación.
+router.get('/marcas-pendientes', proteger, soloRol('admin', 'supervisor'), async (req, res) => {
+  try {
+    const medidores = await Medidor.find({ 'marcaPermanente.situacion': 'propuesta' })
+      .sort({ unidadDeLectura: 1, instalacion: 1 })
+      .select('-__v')
+    res.json({ medidores })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/medidores/:instalacion
 router.get('/:instalacion', proteger, async (req, res) => {
   try {
