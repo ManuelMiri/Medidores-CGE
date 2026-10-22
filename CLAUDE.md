@@ -111,6 +111,8 @@ PWA en Vercel ─────────────┘   /api/...            �
     `POST /:instalacion/cambio-medidor` y `POST /desde-toes` los llama la app sola desde el log
     (idempotentes; `desde-toes` nunca toca una instalación que ya existe, en ninguna UL).
     `POST /:instalacion/fotos` acepta `idLocal` y `fecha`.
+    `GET /marcas-pendientes` (admin y supervisor): las marcas en `propuesta` de todas las ULs, para
+    el modo revisión. Va declarada ANTES de `GET /:instalacion`, que si no la tomaría como una.
   - `importacion`: sube KML/KMZ/Excel de SAP → preview → `POST /confirmar` (admin).
   - `rutas`: `GET /subidas?ul=A,B` (admin: quién subió cada UL, sacado del historial de la
     importación), `GET /:ul/exportar` (xlsx formato SAP), `DELETE /:ul` (admin), y las notas:
@@ -123,7 +125,7 @@ PWA en Vercel ─────────────┘   /api/...            �
 
 ```bash
 cd frontend
-npm test              # 235 tests con node --test (234 pasan; 1 se salta sin log real)
+npm test              # 245 tests con node --test (244 pasan; 1 se salta sin log real)
 npm run lint          # oxlint; 3 warnings preexistentes (2 en Mapa.jsx, 1 en AuthContext.jsx)
 npm run medir:mapa    # mide la fluidez del mapa en el teléfono (ver README)
 npm run dev           # http://localhost:5173, ya está en el CORS de producción
@@ -132,7 +134,7 @@ npm run android:apk   # build nativo + cap sync + gradlew; busca el JDK solo
 ```
 
 ```bash
-cd backend && npm test   # 129 tests: Jest + Supertest + mongodb-memory-server
+cd backend && npm test   # 134 tests: Jest + Supertest + mongodb-memory-server
 ```
 
 Antes de dar algo por terminado: `npm test` en los dos lados, `npm run lint` (que sigan siendo 3
@@ -228,6 +230,7 @@ actualizan solos. Un cambio de API tiene que seguir funcionando con lo que manda
 | `frontend/src/utils/altasToes.js` | qué servicios tomados no tienen pin, con sus resguardos (puro, testeado) |
 | `frontend/src/hooks/useNotasUl.js` + `components/NotasUl.jsx` | notas de la ruta, con copia en el teléfono |
 | `frontend/src/hooks/useSubidasUl.js` | quién subió cada UL marcada (solo admin) |
+| `frontend/src/utils/marcasPendientes.js` + `hooks/useMarcasPendientes.js` | el modo revisión: lo que espera confirmación, agrupado por UL, y qué encuadrar |
 | `frontend/src/utils/colaFotos.js` + `hooks/useColaFotos.js` | fotos que esperan señal: archivos en el APK, IndexedDB en la web |
 | `frontend/src/utils/archivosFotos.js` | la cola de fotos en archivos de la app y el paso desde IndexedDB (puro, testeado) |
 | `frontend/src/utils/avisoWebView.js` | cuándo avisar que el WebView no deja sincronizar a TOES (puro, testeado) |
@@ -291,6 +294,15 @@ al lado (ver `ulsActivas.js`, `marcasToes.js`). Seguir ese patrón en vez de dej
   "debe estar siempre disponible"). Cada fila dice el nombre, "sin registro" si la UL no viene de
   una importación (E3559701, al 2026-10-21) o "…" si no hubo respuesta (sin señal, o un backend sin
   la ruta).
+- **Modo revisión: "🚫 Por confirmar (N)"** (admin y supervisor, los que confirman), arriba en el
+  panel. Solo **marcas** en `propuesta` (eriazo, no encontrado, sin empalme), de **todas** las ULs
+  aunque no estén marcadas. Al entrar, el mapa muestra **solo eso** y lo encuadra; el panel lo
+  lista por UL con ✓ (confirmar), ✗ ("sí hay medidor") y 📍 (centra y abre el popup; en el teléfono
+  cierra el panel). Con el panel cerrado aparece en el mapa "🚫 N por confirmar · Ver todos ·
+  Salir". TOES, el Resumen y el buscador siguen con las ULs marcadas: solo cambia qué pines se
+  dibujan, y el repaso de casas cerradas no se aplica (dejaría el mapa vacío). No hay "confirmar
+  todos" a propósito: cada punto lo decide una persona. Decisiones del usuario (2026-10-21): solo
+  marcas (no los pines nuevos de TOES), solo lo pendiente en el mapa, admin y supervisor.
 - **Notas de la UL:** botón 📝 en cada UL marcada, con el número de notas a la vista. Sin señal
   muestra la última copia guardada en el teléfono.
 - **Fotos:** se achican a 1920 px (JPEG 0,75: de varios MB a unos cientos de KB) y se guardan en el
@@ -324,6 +336,20 @@ Están explicadas en el README, pero conviene tenerlas presentes:
 - **Todo lo que toque el mapa hay que probarlo en los DOS motores.** Ya pasó que un cambio rompiera
   Leaflet —la app en blanco— sin que lo vieran el build, oxlint ni los tests, porque el archivo que
   se rompió solo se monta con ese motor.
+- **En MapLibre, `popup.addTo()` sobre un popup ya abierto lo cierra** (2026-10-21): llama primero a
+  `remove()`, que dispara `'close'`, y MapaGL lo daba por cerrado. Como el efecto que monta el popup
+  corre con cada cambio de `grupos`, **cualquier recarga de medidores cerraba la ficha que se estaba
+  mirando** (confirmar una marca, subir una foto, una marca que propone TOES). Estaba en producción
+  sin que nadie lo notara; salió en el modo revisión, donde el popup duraba medio segundo. Ahora
+  solo se agrega si `!isOpen()`. Y como el popup se recuerda por **índice** en `grupos`, sin ese
+  cierre accidental quedaba abierto sobre OTRO medidor cuando la lista cambiaba: ahora se sigue al
+  medidor (`useLayoutEffect` en MapaGL) y se cierra si ya no está en el mapa.
+- **En Leaflet, mover el mapa en el mismo render que cambian los pines deja el culling viejo.**
+  `useMapEvents` de react-leaflet se vuelve a suscribir en cada render: en ese commit
+  CapaMedidores suelta su `moveend` y lo pone DESPUÉS de los efectos de sus hermanos. Un
+  `fitBounds` en ese hueco mueve el mapa pero la capa sigue recortando con el cuadro anterior: el
+  modo revisión dibujaba 2 pines de 5. `EncuadrarMapa` espera un `requestAnimationFrame`.
+  `CentrarMapa` (el buscador) tiene el mismo hueco, pero ahí el elegido se dibuja siempre.
 - **Vercel compila en Linux.** Nada de configuración que solo exista en Windows: un `.npmrc` con
   `script-shell=cmd.exe` (para que `android:apk` anduviera desde Git Bash) dejó **todos** los
   despliegues fallando durante días. Lo que sea de Windows va dentro de `scripts/*.mjs`, que
@@ -474,7 +500,16 @@ cambio de medidor con "(antes …)"; "Copiar lista" con un toque de verdad da "�
 "👤 Subida por", sobre E3510001 (sin lecturas de TOES en el ciclo): "Ccastillo" con la respuesta
 real, "sin registro" con una vacía y "…" contra producción, que hoy da 404. La agregación se corrió
 solo-lectura contra la base: 25 de 27 ULs tienen quién la subió. **Hasta publicar el backend, el
-bloque muestra "…"**.
+bloque muestra "…"**. (`reporte-y-subidas` ya está en `main`: ver arriba.)
+
+En la rama `revision-marcas` (sin publicar, encima de `reporte-y-subidas`): el **modo revisión de
+marcas por confirmar** y dos arreglos del mapa que salieron al probarlo (ver Trampas). **Toca el
+backend** (`GET /medidores/marcas-pendientes`, ruta nueva). Al 2026-10-21 en la base hay 13
+propuestas: 11 eriazos y 2 "no encontrado", en 7 ULs. Probado en el teléfono, en los dos motores,
+con 5 pendientes **inventados** (instalaciones `PRUEBA-…`, que no existen: un PATCH escapado daría
+404) servidos por CDP, y el PATCH de ✓/✗ interceptado sin llegar al servidor: lista agrupada por
+UL, encuadre de los 5, ✓ y ✗ mandan `confirmada`/`rechazada` y la lista baja, 📍 abre el popup y
+cierra el panel, "Ver todos" reencuadra, "Salir" vuelve a la UL marcada y cierra el popup.
 
 La migración a MapLibre está medida en el teléfono: el p95 por frame pasa de 57 ms a 16 ms y los
 marcadores dejan de costar (+19 ms por frame en Leaflet, 0 medible en GL).
